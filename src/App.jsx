@@ -626,7 +626,17 @@ function ImportModal({ categories, onClose, onImported }) {
       const workbook = XLSX.read(buffer, { type: "array" });
       const sheetName = workbook.SheetNames.find((n) => normalizeText(n) === "custos") || workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
-      const raw = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+
+      // A planilha pode ter linhas em branco/título antes do cabeçalho de verdade —
+      // procura a linha que contém a coluna "Produto" em vez de assumir que é a primeira.
+      const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+      const headerRowIndex = grid.findIndex((row) => row.some((cell) => normalizeText(cell) === "produto"));
+      if (headerRowIndex === -1) {
+        setError(`Não encontrei uma coluna "Produto" na aba "${sheetName}".`);
+        setRows([]);
+        return;
+      }
+      const raw = XLSX.utils.sheet_to_json(sheet, { range: headerRowIndex, defval: "" });
 
       const mapped = raw
         .filter((r) => normalizeText(getSheetCell(r, "Produto")))
