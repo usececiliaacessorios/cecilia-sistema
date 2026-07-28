@@ -112,6 +112,29 @@ export async function updateProduct(id, form) {
   return data;
 }
 
+// Cria vários produtos de uma vez (importação de planilha). Cada linha já
+// deve trazer categoryId resolvido. O código (BR0001...) é gerado sozinho
+// pelo banco para cada linha.
+export async function bulkCreateProducts(rows) {
+  const { data, error } = await supabase
+    .from("products")
+    .insert(rows.map((r) => ({
+      name: r.name,
+      category_id: r.categoryId,
+      garantia: "12 meses",
+      valor_pago: Number(r.valorPago) || 0,
+      frete_rateado: Number(r.freteRateado) || 0,
+      custo_total: Number(r.custoTotal) || 0,
+      preco_sugerido: Number(r.precoSugerido) || 0,
+      quantidade: Number(r.quantidade) || 0,
+      estoque_minimo: 5,
+    })))
+    .select();
+
+  if (error) throw error;
+  return data.map(mapProductRow);
+}
+
 export async function deleteProduct(id) {
   const { error } = await supabase.from("products").delete().eq("id", id);
   if (error) throw error;

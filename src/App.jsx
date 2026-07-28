@@ -5,14 +5,15 @@ import {
   Search, Bell, ChevronDown, Plus, X, Pencil, Trash2, ImagePlus,
   TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, Clock,
   Instagram, MessageCircle, Store, MapPin, Eye, EyeOff, Lock, Mail,
-  Menu, Sparkles, ArrowUpRight, ArrowDownRight, Filter, Share2
+  Menu, Sparkles, ArrowUpRight, ArrowDownRight, Filter, Share2, Upload
 } from "lucide-react";
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, AreaChart, Area
 } from "recharts";
+import * as XLSX from "xlsx";
 import { login, getCurrentUser, getCurrentProfile, updateCurrentProfile, onAuthChange, requestPasswordReset } from "./services/auth";
-import { listProducts, listCategories, createProduct, updateProduct, deleteProduct, uploadProductPhoto } from "./services/produtos";
+import { listProducts, listCategories, createProduct, updateProduct, deleteProduct, uploadProductPhoto, bulkCreateProducts } from "./services/produtos";
 import { listSuppliers, createSupplier, updateSupplier, deleteSupplier } from "./services/fornecedores";
 
 /* ============================================================
@@ -134,9 +135,9 @@ function GoldButton({ children, onClick, icon: Icon, type = "button", full, disa
     </button>
   );
 }
-function GhostButton({ children, onClick, icon: Icon, type = "button" }) {
+function GhostButton({ children, onClick, icon: Icon, type = "button", disabled }) {
   return (
-    <button type={type} onClick={onClick} className="cc-btn-ghost">
+    <button type={type} onClick={onClick} disabled={disabled} className="cc-btn-ghost" style={{ opacity: disabled ? 0.6 : 1, cursor: disabled ? "not-allowed" : "pointer" }}>
       {Icon && <Icon size={15} strokeWidth={2} />}
       {children}
     </button>
@@ -579,6 +580,162 @@ function Dashboard({ products }) {
 
 /* ---------------- Produtos ---------------- */
 
+/* ---------------- Importação de planilha ---------------- */
+
+function normalizeText(str) {
+  return (str ?? "").toString().normalize("NFD").replace(/\p{Diacritic}/gu, "").trim().toLowerCase();
+}
+
+// Aceita número já numérico ou texto formatado (ex: "R$ 1.234,56")
+function parseSheetNumber(val) {
+  if (typeof val === "number") return val;
+  if (val === null || val === undefined || val === "") return 0;
+  const cleaned = String(val).replace(/[^\d,.-]/g, "").replace(/\.(?=\d{3}(,|$))/g, "").replace(",", ".");
+  const n = parseFloat(cleaned);
+  return isNaN(n) ? 0 : n;
+}
+
+// Busca uma coluna pelo nome, ignorando acentos/maiúsculas e espaços extras no cabeçalho
+function getSheetCell(row, name) {
+  const target = normalizeText(name);
+  const key = Object.keys(row).find((k) => normalizeText(k) === target);
+  return key !== undefined ? row[key] : "";
+}
+
+function ImportModal({ categories, onClose, onImported }) {
+  const [rows, setRows] = useState([]);
+  const [fileName, setFileName] = useState("");
+  const [parsing, setParsing] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [error, setError] = useState("");
+
+  function matchCategory(texto) {
+    const alvo = normalizeText(texto);
+    return categories.find((c) => normalizeText(c.nome) === alvo);
+  }
+
+  async function handleFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError("");
+    setRows([]);
+    setFileName(file.name);
+    setParsing(true);
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: "array" });
+      const sheetName = workbook.SheetNames.find((n) => normalizeText(n) === "custos") || workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const raw = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+
+      const mapped = raw
+        .filter((r) => normalizeText(getSheetCell(r, "Produto")))
+        .map((r, i) => {
+          const categoriaTexto = String(getSheetCell(r, "Categoria") || "").trim();
+          const match = matchCategory(categoriaTexto);
+          return {
+            _key: i,
+            name: String(getSheetCell(r, "Produto") || "").trim(),
+            categoriaTexto,
+            categoryId: match ? match.id : "",
+            quantidade: parseSheetNumber(getSheetCell(r, "Estoque")),
+            valorPago: parseSheetNumber(getSheetCell(r, "Custo da peça")),
+            freteRateado: parseSheetNumber(getSheetCell(r, "Frete rateado")),
+            custoTotal: parseSheetNumber(getSheetCell(r, "Custo total")),
+            precoSugerido: parseSheetNumber(getSheetCell(r, "Preço de venda")),
+            lucroPlanilha: parseSheetNumber(getSheetCell(r, "Lucro (R$)")),
+          };
+        });
+
+      if (mapped.length === 0) setError(`Nenhuma linha com "Produto" preenchido foi encontrada na aba "${sheetName}".`);
+      setRows(mapped);
+    } catch (err) {
+      setError("Erro ao ler o arquivo: " + err.message);
+    } finally {
+      setParsing(false);
+    }
+  }
+
+  function setRowCategory(key, categoryId) {
+    setRows((prev) => prev.map((r) => (r._key === key ? { ...r, categoryId } : r)));
+  }
+
+  const pendingCount = rows.filter((r) => !r.categoryId).length;
+
+  async function handleConfirm() {
+    if (rows.length === 0) return;
+    if (pendingCount > 0) {
+      setError("Escolha a categoria de todas as linhas destacadas antes de confirmar.");
+      return;
+    }
+    setImporting(true);
+    setError("");
+    try {
+      const created = await bulkCreateProducts(rows);
+      onImported(created.length);
+      onClose();
+    } catch (err) {
+      setError("Erro ao importar: " + err.message);
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  return (
+    <Modal title="Importar planilha de produtos" onClose={onClose} wide>
+      <Field label="Arquivo (.xlsx)">
+        <input type="file" accept=".xlsx" onChange={handleFile} style={{ fontFamily: "Manrope", fontSize: 12.5 }} />
+      </Field>
+
+      {parsing && <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A968F", marginTop: 10 }}>Lendo planilha...</p>}
+      {error && <p style={{ fontFamily: "Manrope", fontSize: 12.5, color: "#B94A48", marginTop: 10 }}>{error}</p>}
+
+      {rows.length > 0 && (
+        <>
+          <p style={{ fontFamily: "Manrope", fontSize: 12.5, color: "#5B6B63", margin: "16px 0 10px" }}>
+            <strong>{fileName}</strong> — {rows.length} linhas encontradas
+            {pendingCount > 0 ? `, ${pendingCount} precisam de categoria (destacadas abaixo)` : ", todas com categoria reconhecida"}.
+          </p>
+          <div style={{ maxHeight: 340, overflowY: "auto", border: "1px solid #EFEBE0", borderRadius: 12 }}>
+            <Table
+              columns={["Produto", "Categoria", "Estoque", "Custo peça", "Frete", "Custo total", "Preço venda", "Lucro (planilha)"]}
+              rows={rows}
+              renderRow={(r) => (
+                <tr key={r._key} style={{ background: r.categoryId ? "transparent" : "#FBEFEF" }}>
+                  <td style={td}>{r.name}</td>
+                  <td style={td}>
+                    {r.categoryId ? (
+                      <Badge tone="green">{categories.find((c) => c.id === r.categoryId)?.nome}</Badge>
+                    ) : (
+                      <Select value={r.categoryId} onChange={(e) => setRowCategory(r._key, e.target.value)} style={{ borderColor: "#D98C8C", minWidth: 160 }}>
+                        <option value="">"{r.categoriaTexto || "—"}" — escolher...</option>
+                        {categories.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                      </Select>
+                    )}
+                  </td>
+                  <td style={td}>{r.quantidade}</td>
+                  <td style={td}>{money(r.valorPago)}</td>
+                  <td style={td}>{money(r.freteRateado)}</td>
+                  <td style={td}>{money(r.custoTotal)}</td>
+                  <td style={td}>{money(r.precoSugerido)}</td>
+                  <td style={td}>{money(r.lucroPlanilha)}</td>
+                </tr>
+              )}
+            />
+          </div>
+        </>
+      )}
+
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
+        <GhostButton onClick={onClose}>Cancelar</GhostButton>
+        <GoldButton onClick={handleConfirm} disabled={rows.length === 0 || importing || pendingCount > 0}>
+          {importing ? "Importando..." : `Confirmar importação (${rows.length})`}
+        </GoldButton>
+      </div>
+    </Modal>
+  );
+}
+
 function emptyProduct(categories) {
   return {
     categoryId: categories?.[0]?.id || "", collection: "", name: "", photo: "",
@@ -593,6 +750,8 @@ function ProdutosView({ products, setProducts, suppliers, categories, loading, l
   const [modal, setModal] = useState(null); // {mode:'new'|'edit', data}
   const [filterCat, setFilterCat] = useState("Todas");
   const [saving, setSaving] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importMsg, setImportMsg] = useState("");
 
   function openNew() { setModal({ mode: "new", data: emptyProduct(categories) }); }
   function openEdit(p) { setModal({ mode: "edit", data: { ...p } }); }
@@ -630,6 +789,12 @@ function ProdutosView({ products, setProducts, suppliers, categories, loading, l
     }
   }
 
+  async function handleImported(count) {
+    const fresh = await listProducts();
+    setProducts(fresh);
+    setImportMsg(`${count} produto${count === 1 ? "" : "s"} importado${count === 1 ? "" : "s"} com sucesso!`);
+  }
+
   const categoryNames = categories.map((c) => c.nome);
   const filtered = filterCat === "Todas" ? products : products.filter((p) => p.category === filterCat);
 
@@ -638,12 +803,23 @@ function ProdutosView({ products, setProducts, suppliers, categories, loading, l
       <SectionTitle
         title="Produtos"
         subtitle={`${products.length} peças cadastradas`}
-        action={<GoldButton icon={Plus} onClick={openNew} disabled={loading || categories.length === 0}>Novo produto</GoldButton>}
+        action={
+          <div style={{ display: "flex", gap: 10 }}>
+            <GhostButton icon={Upload} onClick={() => { setImportMsg(""); setImportOpen(true); }} disabled={loading || categories.length === 0}>Importar planilha</GhostButton>
+            <GoldButton icon={Plus} onClick={openNew} disabled={loading || categories.length === 0}>Novo produto</GoldButton>
+          </div>
+        }
       />
 
       {loadError && (
         <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#B94A48", marginBottom: 14 }}>
           Erro ao carregar produtos: {loadError}
+        </p>
+      )}
+
+      {importMsg && (
+        <p style={{ fontFamily: "Manrope", fontSize: 13, color: GREEN, marginBottom: 14, fontWeight: 600 }}>
+          {importMsg}
         </p>
       )}
 
@@ -705,6 +881,10 @@ function ProdutosView({ products, setProducts, suppliers, categories, loading, l
         <Modal title={modal.mode === "new" ? "Novo produto" : `Editar ${modal.data.code}`} onClose={() => setModal(null)} wide>
           <ProductForm data={modal.data} suppliers={suppliers} categories={categories} onSave={save} saving={saving} onCancel={() => setModal(null)} previewCode={modal.mode === "new" ? "gerado automaticamente" : modal.data.code} />
         </Modal>
+      )}
+
+      {importOpen && (
+        <ImportModal categories={categories} onClose={() => setImportOpen(false)} onImported={handleImported} />
       )}
     </div>
   );
