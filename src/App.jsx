@@ -21,11 +21,11 @@ import { listCashflow, createCashflowEntry } from "./services/caixa";
 
 /* ============================================================
    CECÍLIA — Sistema de Gestão
-   Paleta: verde escuro #1F5E4A · dourado fosco #C8A45A · branco
+   Paleta: verde esmeralda escuro #0F3D2E · dourado fosco #C8A45A · branco
    ============================================================ */
 
-export const GREEN = "#1F5E4A";
-const GREEN_DARK = "#163F32";
+export const GREEN = "#0F3D2E";
+const GREEN_DARK = "#0A2A20";
 export const GOLD = "#C8A45A";
 const GOLD_SOFT = "#E4D2A8";
 export const CREAM = "#FAF7F1";
@@ -212,6 +212,43 @@ const thStyle = {
   textTransform: "uppercase", letterSpacing: ".04em", padding: "10px 14px", borderBottom: "1px solid #EFEBE0",
 };
 
+/* ---------------- Logo ---------------- */
+
+// Wordmark reutilizável: texto serifado dourado + estrelinha decorativa.
+// variant="large" acrescenta a linha com losango e a tagline em itálico.
+function CeciliaLogo({ variant = "large" }) {
+  const compact = variant === "compact";
+  return (
+    <div>
+      <div style={{ position: "relative", display: "inline-block" }}>
+        <span style={{
+          fontFamily: "Cormorant Garamond", fontWeight: 600, fontStyle: "normal",
+          fontSize: compact ? 21 : 40, color: GOLD, letterSpacing: ".02em", lineHeight: 1,
+        }}>
+          Cecília
+        </span>
+        <Sparkles
+          size={compact ? 12 : 18}
+          color={GOLD}
+          style={{ position: "absolute", top: compact ? -5 : -10, right: compact ? -11 : -18 }}
+        />
+      </div>
+      {!compact && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, margin: "12px 0 8px" }}>
+            <span style={{ width: 44, height: 1, background: GOLD, display: "inline-block" }} />
+            <span style={{ width: 6, height: 6, background: GOLD, transform: "rotate(45deg)", display: "inline-block", flexShrink: 0 }} />
+            <span style={{ width: 44, height: 1, background: GOLD, display: "inline-block" }} />
+          </div>
+          <p style={{ fontFamily: "Cormorant Garamond", fontStyle: "italic", fontSize: 15.5, color: GOLD_SOFT, margin: 0, textAlign: "center" }}>
+            Elegante como você.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 /* ---------------- Login ---------------- */
 
 function LoginScreen({ onLogin }) {
@@ -253,24 +290,17 @@ function LoginScreen({ onLogin }) {
 
   return (
     <div style={{
-      minHeight: "100vh", background: `linear-gradient(160deg, ${GREEN_DARK} 0%, ${GREEN} 55%, #24705A 100%)`,
-      display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "Manrope",
+      minHeight: "100vh", background: `linear-gradient(160deg, ${GREEN_DARK} 0%, ${GREEN} 55%, #1B4F3E 100%)`,
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "Manrope",
     }}>
+      <div style={{ marginBottom: 28, textAlign: "center" }}>
+        <CeciliaLogo variant="large" />
+      </div>
       <div style={{
-        background: "#fff", borderRadius: 22, width: "100%", maxWidth: 400, padding: "42px 36px",
+        background: "#fff", borderRadius: 22, width: "100%", maxWidth: 400, padding: "36px 36px 42px",
         boxShadow: "0 30px 60px rgba(0,0,0,0.25)", position: "relative", overflow: "hidden",
       }}>
         <div style={{ position: "absolute", top: -40, right: -40, width: 130, height: 130, borderRadius: "50%", background: `${GOLD}22` }} />
-        <div style={{ textAlign: "center", marginBottom: 30, position: "relative" }}>
-          <div style={{
-            width: 56, height: 56, margin: "0 auto 14px", borderRadius: "50%",
-            border: `1.5px solid ${GOLD}`, display: "flex", alignItems: "center", justifyContent: "center",
-          }}>
-            <span style={{ fontFamily: "Cormorant Garamond", fontSize: 26, color: GREEN, fontStyle: "italic" }}>C</span>
-          </div>
-          <h1 style={{ fontFamily: "Cormorant Garamond", fontSize: 34, color: GREEN, margin: 0, letterSpacing: ".02em" }}>Cecília</h1>
-          <p style={{ fontFamily: "Cormorant Garamond", fontStyle: "italic", fontSize: 15.5, color: GOLD, margin: "4px 0 0" }}>Elegante como você!</p>
-        </div>
 
         {mode === "login" ? (
           <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -348,14 +378,9 @@ function Sidebar({ active, setActive, mobileOpen, setMobileOpen, profile, onOpen
       <aside className={`cc-sidebar ${mobileOpen ? "cc-sidebar-open" : ""}`} style={{
         background: GREEN_DARK, width: 232, flexShrink: 0, display: "flex", flexDirection: "column",
       }}>
-        <div style={{ padding: "26px 22px 18px", display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 34, height: 34, borderRadius: "50%", border: `1.3px solid ${GOLD}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <span style={{ fontFamily: "Cormorant Garamond", fontStyle: "italic", color: GOLD, fontSize: 17 }}>C</span>
-          </div>
-          <div>
-            <p style={{ fontFamily: "Cormorant Garamond", color: "#fff", fontSize: 19, margin: 0, letterSpacing: ".02em" }}>Cecília</p>
-            <p style={{ fontFamily: "Manrope", color: "#8FB3A5", fontSize: 10, margin: 0, letterSpacing: ".08em" }}>SEMIJOIAS</p>
-          </div>
+        <div style={{ padding: "26px 22px 18px" }}>
+          <CeciliaLogo variant="compact" />
+          <p style={{ fontFamily: "Manrope", color: "#8FB3A5", fontSize: 10, margin: "6px 0 0", letterSpacing: ".08em" }}>SEMIJOIAS</p>
         </div>
         <nav style={{ flex: 1, padding: "6px 12px", display: "flex", flexDirection: "column", gap: 2, overflowY: "auto" }}>
           {NAV.map((item) => {
@@ -1900,7 +1925,7 @@ function CatalogoView({ products }) {
               <p style={{ fontFamily: "Manrope", fontSize: 11, fontWeight: 700, color: GOLD, margin: 0, letterSpacing: ".04em" }}>{p.code}</p>
               <p style={{ fontFamily: "Cormorant Garamond", fontSize: 19, fontWeight: 600, margin: "3px 0 6px", color: INK }}>{p.name}</p>
               <p style={{ fontFamily: "Manrope", fontSize: 12, color: "#7A897F", margin: "0 0 10px", lineHeight: 1.5 }}>
-                {p.banho} · {p.cor}{p.pedra !== "—" ? ` · ${p.pedra}` : ""} · Garantia {p.garantia}
+                {[p.banho, p.cor, p.pedra, p.garantia ? `Garantia ${p.garantia}` : ""].filter(Boolean).join(" · ")}
               </p>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <span style={{ fontFamily: "Cormorant Garamond", fontSize: 22, fontWeight: 700, color: GREEN }}>{money(p.precoSugerido)}</span>
