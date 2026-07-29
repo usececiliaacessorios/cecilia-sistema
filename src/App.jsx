@@ -15,6 +15,9 @@ import * as XLSX from "xlsx";
 import { login, getCurrentUser, getCurrentProfile, updateCurrentProfile, onAuthChange, requestPasswordReset } from "./services/auth";
 import { listProducts, listCategories, createProduct, updateProduct, deleteProduct, bulkDeleteProducts, uploadProductPhoto, bulkCreateProducts } from "./services/produtos";
 import { listSuppliers, createSupplier, updateSupplier, deleteSupplier } from "./services/fornecedores";
+import { listClients, createClient, updateClient, deleteClient } from "./services/clientes";
+import { listOrders, createOrder, updateOrder, updateOrderStatus } from "./services/pedidos";
+import { listCashflow } from "./services/caixa";
 
 /* ============================================================
    CECÍLIA — Sistema de Gestão
@@ -41,19 +44,6 @@ const CATEGORY_PREFIX = {
 };
 const CATEGORIES = Object.keys(CATEGORY_PREFIX);
 
-const seedClients = [
-  { id: 1, nome: "Marina Costa", telefone: "(11) 98888-1234", whatsapp: "(11) 98888-1234", instagram: "@marina.costa", cidade: "São Paulo", estado: "SP", aniversario: "1994-03-12", dataCadastro: "2025-11-02", totalGasto: 1240, qtdPedidos: 6, obs: "Prefere peças douradas" },
-  { id: 2, nome: "Aline Ferreira", telefone: "(21) 97777-4321", whatsapp: "(21) 97777-4321", instagram: "@alineferr", cidade: "Rio de Janeiro", estado: "RJ", aniversario: "1990-07-22", dataCadastro: "2026-01-15", totalGasto: 580, qtdPedidos: 3, obs: "" },
-  { id: 3, nome: "Juliana Prado", telefone: "(31) 96666-5678", whatsapp: "(31) 96666-5678", instagram: "@ju.prado", cidade: "Belo Horizonte", estado: "MG", aniversario: "1988-12-01", dataCadastro: "2026-03-08", totalGasto: 2130, qtdPedidos: 11, obs: "Cliente VIP" },
-];
-
-const seedOrders = [
-  { id: 1, numero: "PED0001", cliente: "Marina Costa", itens: [{ productId: 1, code: "BR0001", name: "Brinco Argola Trança", qtd: 1, preco: 79.9 }], produtos: "Brinco Argola Trança x1", desconto: 0, forma: "Pix", parcelas: 1, status: "Entregue", rastreio: "BR123456789", transportadora: "Correios", obs: "", total: 79.9, data: "2026-07-10", baixado: true },
-  { id: 2, numero: "PED0002", cliente: "Juliana Prado", itens: [{ productId: 5, code: "CJ0001", name: "Conjunto Pérolas", qtd: 1, preco: 189.9 }, { productId: 3, code: "AN0001", name: "Anel Solitário Baguete", qtd: 2, preco: 69.9 }], produtos: "Conjunto Pérolas x1, Anel Solitário Baguete x2", desconto: 20, forma: "Cartão", parcelas: 3, status: "Separando", rastreio: "", transportadora: "", obs: "Embalar para presente", total: 263.74, data: "2026-07-20", baixado: false },
-  { id: 3, numero: "PED0003", cliente: "Aline Ferreira", itens: [{ productId: 2, code: "CL0001", name: "Colar Gota Cristal", qtd: 1, preco: 129.9 }], produtos: "Colar Gota Cristal x1", desconto: 0, forma: "Pix", parcelas: 1, status: "Aguardando pagamento", rastreio: "", transportadora: "", obs: "", total: 129.9, data: "2026-07-24", baixado: false },
-  { id: 4, numero: "PED0004", cliente: "Marina Costa", itens: [{ productId: 4, code: "PU0001", name: "Pulseira Elos Cubanos", qtd: 1, preco: 99.9 }], produtos: "Pulseira Elos Cubanos x1", desconto: 10, forma: "Cartão", parcelas: 2, status: "Enviado", rastreio: "BR998877665", transportadora: "Jadlog", obs: "", total: 89.9, data: "2026-07-22", baixado: true },
-];
-
 const salesByMonth = [
   { mes: "Fev", vendas: 5200 }, { mes: "Mar", vendas: 6100 }, { mes: "Abr", vendas: 5800 },
   { mes: "Mai", vendas: 7300 }, { mes: "Jun", vendas: 8100 }, { mes: "Jul", vendas: 9250 },
@@ -75,14 +65,6 @@ const salesOrigin = [
   { name: "Loja Virtual", value: 17 }, { name: "Presencial", value: 10 },
 ];
 const PIE_COLORS = [GREEN, GOLD, "#8AA89B", "#DCC38A", "#3F7A63"];
-
-const cashflowSeed = [
-  { id: 1, tipo: "Entrada", desc: "Venda PED0001", valor: 79.9, data: "2026-07-10" },
-  { id: 2, tipo: "Saída", desc: "Compra Joalheria Aurum", valor: -410, data: "2026-07-08" },
-  { id: 3, tipo: "Entrada", desc: "Venda PED0004", valor: 89.9, data: "2026-07-22" },
-  { id: 4, tipo: "Saída", desc: "Embalagens e etiquetas", valor: -65, data: "2026-07-15" },
-  { id: 5, tipo: "Saída", desc: "Taxa maquininha", valor: -22.4, data: "2026-07-22" },
-];
 
 export const money = (v) =>
   (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -1124,61 +1106,90 @@ function ProductForm({ data, suppliers, categories, onSave, saving, onCancel, pr
 
 /* ---------------- Clientes ---------------- */
 
-function ClientesView({ clients, setClients }) {
+function ClientesView({ clients, setClients, loading, loadError }) {
   const [modal, setModal] = useState(null);
+  const [saving, setSaving] = useState(false);
   function openNew() { setModal({ mode: "new", data: { nome: "", telefone: "", whatsapp: "", instagram: "", cidade: "", estado: "", aniversario: "", obs: "" } }); }
   function openEdit(c) { setModal({ mode: "edit", data: { ...c } }); }
-  function save(data) {
-    if (modal.mode === "new") {
-      setClients((prev) => [...prev, { ...data, id: Date.now(), dataCadastro: new Date().toISOString().slice(0, 10), totalGasto: 0, qtdPedidos: 0 }]);
-    } else {
-      setClients((prev) => prev.map((c) => c.id === data.id ? data : c));
+
+  async function save(data) {
+    setSaving(true);
+    try {
+      if (modal.mode === "new") {
+        await createClient(data);
+      } else {
+        await updateClient(data.id, data);
+      }
+      const fresh = await listClients();
+      setClients(fresh);
+      setModal(null);
+    } catch (err) {
+      alert("Erro ao salvar cliente: " + err.message);
+    } finally {
+      setSaving(false);
     }
-    setModal(null);
   }
-  function remove(id) { setClients((prev) => prev.filter((c) => c.id !== id)); }
+
+  async function remove(id) {
+    if (!window.confirm("Remover este cliente?")) return;
+    try {
+      await deleteClient(id);
+      setClients((prev) => prev.filter((c) => c.id !== id));
+    } catch (err) {
+      alert("Erro ao remover cliente: " + err.message);
+    }
+  }
 
   return (
     <div>
       <SectionTitle title="Clientes" subtitle={`${clients.length} clientes cadastrados`} action={<GoldButton icon={Plus} onClick={openNew}>Novo cliente</GoldButton>} />
+      {loadError && (
+        <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#B94A48", marginBottom: 14 }}>
+          Erro ao carregar clientes: {loadError}
+        </p>
+      )}
       <div className="cc-card" style={{ padding: 0 }}>
-        <Table
-          columns={["Cliente", "Contato", "Cidade/UF", "Aniversário", "Total gasto", "Pedidos", ""]}
-          rows={clients}
-          renderRow={(c) => (
-            <tr key={c.id}>
-              <td style={td}><span style={{ fontWeight: 600 }}>{c.nome}</span></td>
-              <td style={td}>
-                <div style={{ display: "flex", gap: 6, color: "#5B6B63" }}>
-                  <MessageCircle size={13} /> {c.whatsapp}
-                </div>
-                {c.instagram && <div style={{ display: "flex", gap: 6, color: "#8A968F", fontSize: 12, marginTop: 2 }}><Instagram size={12} /> {c.instagram}</div>}
-              </td>
-              <td style={td}>{c.cidade}/{c.estado}</td>
-              <td style={td}>{c.aniversario ? new Date(c.aniversario + "T00:00").toLocaleDateString("pt-BR") : "—"}</td>
-              <td style={td}><span style={{ fontWeight: 700, color: GREEN }}>{money(c.totalGasto)}</span></td>
-              <td style={td}>{c.qtdPedidos}</td>
-              <td style={td}>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <button onClick={() => openEdit(c)} className="cc-icon-btn"><Pencil size={14} /></button>
-                  <button onClick={() => remove(c.id)} className="cc-icon-btn"><Trash2 size={14} /></button>
-                </div>
-              </td>
-            </tr>
-          )}
-        />
+        {loading ? (
+          <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A968F", padding: 20 }}>Carregando clientes...</p>
+        ) : (
+          <Table
+            columns={["Cliente", "Contato", "Cidade/UF", "Aniversário", "Total gasto", "Pedidos", ""]}
+            rows={clients}
+            renderRow={(c) => (
+              <tr key={c.id}>
+                <td style={td}><span style={{ fontWeight: 600 }}>{c.nome}</span></td>
+                <td style={td}>
+                  <div style={{ display: "flex", gap: 6, color: "#5B6B63" }}>
+                    <MessageCircle size={13} /> {c.whatsapp}
+                  </div>
+                  {c.instagram && <div style={{ display: "flex", gap: 6, color: "#8A968F", fontSize: 12, marginTop: 2 }}><Instagram size={12} /> {c.instagram}</div>}
+                </td>
+                <td style={td}>{c.cidade}/{c.estado}</td>
+                <td style={td}>{c.aniversario ? new Date(c.aniversario + "T00:00").toLocaleDateString("pt-BR") : "—"}</td>
+                <td style={td}><span style={{ fontWeight: 700, color: GREEN }}>{money(c.totalGasto)}</span></td>
+                <td style={td}>{c.qtdPedidos}</td>
+                <td style={td}>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => openEdit(c)} className="cc-icon-btn"><Pencil size={14} /></button>
+                    <button onClick={() => remove(c.id)} className="cc-icon-btn"><Trash2 size={14} /></button>
+                  </div>
+                </td>
+              </tr>
+            )}
+          />
+        )}
       </div>
 
       {modal && (
         <Modal title={modal.mode === "new" ? "Novo cliente" : "Editar cliente"} onClose={() => setModal(null)}>
-          <ClientForm data={modal.data} onSave={save} onCancel={() => setModal(null)} />
+          <ClientForm data={modal.data} onSave={save} saving={saving} onCancel={() => setModal(null)} />
         </Modal>
       )}
     </div>
   );
 }
 
-function ClientForm({ data, onSave, onCancel }) {
+function ClientForm({ data, onSave, saving, onCancel }) {
   const [form, setForm] = useState(data);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   return (
@@ -1194,8 +1205,8 @@ function ClientForm({ data, onSave, onCancel }) {
         <Field label="Observações" span={2}><TextArea value={form.obs} onChange={set("obs")} /></Field>
       </div>
       <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
-        <GhostButton onClick={onCancel}>Cancelar</GhostButton>
-        <GoldButton type="submit">Salvar cliente</GoldButton>
+        <GhostButton onClick={onCancel} disabled={saving}>Cancelar</GhostButton>
+        <GoldButton type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar cliente"}</GoldButton>
       </div>
     </form>
   );
@@ -1423,65 +1434,78 @@ function EstoqueView({ products }) {
 
 const ORDER_STATUSES = ["Reservado", "Aguardando pagamento", "Pago", "Separando", "Enviado", "Entregue", "Cancelado"];
 
-function itensLabel(itens) {
-  return (itens || []).map((i) => `${i.name} x${i.qtd}`).join(", ");
-}
-
-function PedidosView({ orders, setOrders, clients, products, onStatusChange }) {
+function PedidosView({ orders, setOrders, clients, products, onStatusChange, loading, loadError }) {
   const [modal, setModal] = useState(null);
+  const [saving, setSaving] = useState(false);
   function openNew() {
-    setModal({ mode: "new", data: { cliente: "", itens: [], desconto: 0, forma: "Pix", parcelas: 1, status: "Aguardando pagamento", rastreio: "", transportadora: "", obs: "", baixado: false } });
+    setModal({ mode: "new", data: { clienteId: "", itens: [], desconto: 0, forma: "Pix", parcelas: 1, status: "Aguardando pagamento", rastreio: "", transportadora: "", obs: "", baixado: false } });
   }
   function openEdit(o) { setModal({ mode: "edit", data: { ...o } }); }
-  function save(data) {
-    const bruto = (data.itens || []).reduce((s, i) => s + i.qtd * i.preco, 0);
-    const total = bruto * (1 - (parseFloat(data.desconto) || 0) / 100);
-    if (modal.mode === "new") {
-      const numero = `PED${String(orders.length + 1).padStart(4, "0")}`;
-      setOrders((prev) => [{ ...data, id: Date.now(), numero, data: new Date().toISOString().slice(0, 10), total, produtos: itensLabel(data.itens) }, ...prev]);
-    } else {
-      setOrders((prev) => prev.map((o) => o.id === data.id ? { ...data, total, produtos: itensLabel(data.itens) } : o));
+
+  async function save(data) {
+    setSaving(true);
+    try {
+      if (modal.mode === "new") {
+        await createOrder(data);
+      } else {
+        await updateOrder(data.id, data);
+      }
+      const fresh = await listOrders();
+      setOrders(fresh);
+      setModal(null);
+    } catch (err) {
+      alert("Erro ao salvar pedido: " + err.message);
+    } finally {
+      setSaving(false);
     }
-    setModal(null);
   }
 
   return (
     <div>
-      <SectionTitle title="Pedidos" subtitle={`${orders.length} pedidos registrados — status "Pago" baixa estoque, credita o caixa e atualiza o cliente`} action={<GoldButton icon={Plus} onClick={openNew}>Novo pedido</GoldButton>} />
+      <SectionTitle title="Pedidos" subtitle={`${orders.length} pedidos registrados — status "Pago" baixa estoque, credita o caixa e atualiza o cliente`} action={<GoldButton icon={Plus} onClick={openNew} disabled={loading || clients.length === 0}>Novo pedido</GoldButton>} />
+      {loadError && (
+        <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#B94A48", marginBottom: 14 }}>
+          Erro ao carregar pedidos: {loadError}
+        </p>
+      )}
       <div className="cc-card" style={{ padding: 0 }}>
-        <Table
-          columns={["Número", "Cliente", "Produtos", "Total", "Pagamento", "Status", ""]}
-          rows={orders}
-          renderRow={(o) => (
-            <tr key={o.id}>
-              <td style={td}><span style={{ fontWeight: 700, color: GREEN }}>{o.numero}</span></td>
-              <td style={td}>{o.cliente}</td>
-              <td style={td} title={o.produtos}><span style={{ maxWidth: 220, display: "inline-block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.produtos}</span></td>
-              <td style={td}>{money(o.total)}</td>
-              <td style={td}>{o.forma} {o.parcelas > 1 ? `${o.parcelas}x` : ""}</td>
-              <td style={td}>
-                <Select value={o.status} onChange={(e) => onStatusChange(o.id, e.target.value)} style={{ padding: "5px 8px", fontSize: 12 }}>
-                  {ORDER_STATUSES.map((s) => <option key={s}>{s}</option>)}
-                </Select>
-                {o.baixado && <div style={{ marginTop: 4 }}><Badge tone="green">estoque baixado</Badge></div>}
-              </td>
-              <td style={td}>
-                <button onClick={() => openEdit(o)} className="cc-icon-btn"><Pencil size={14} /></button>
-              </td>
-            </tr>
-          )}
-        />
+        {loading ? (
+          <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A968F", padding: 20 }}>Carregando pedidos...</p>
+        ) : (
+          <Table
+            columns={["Número", "Cliente", "Produtos", "Total", "Pagamento", "Status", ""]}
+            rows={orders}
+            renderRow={(o) => (
+              <tr key={o.id}>
+                <td style={td}><span style={{ fontWeight: 700, color: GREEN }}>{o.numero}</span></td>
+                <td style={td}>{o.cliente}</td>
+                <td style={td} title={o.produtos}><span style={{ maxWidth: 220, display: "inline-block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.produtos}</span></td>
+                <td style={td}>{money(o.total)}</td>
+                <td style={td}>{o.forma} {o.parcelas > 1 ? `${o.parcelas}x` : ""}</td>
+                <td style={td}>
+                  <Select value={o.status} onChange={(e) => onStatusChange(o.id, e.target.value)} style={{ padding: "5px 8px", fontSize: 12 }}>
+                    {ORDER_STATUSES.map((s) => <option key={s}>{s}</option>)}
+                  </Select>
+                  {o.baixado && <div style={{ marginTop: 4 }}><Badge tone="green">estoque baixado</Badge></div>}
+                </td>
+                <td style={td}>
+                  <button onClick={() => openEdit(o)} className="cc-icon-btn"><Pencil size={14} /></button>
+                </td>
+              </tr>
+            )}
+          />
+        )}
       </div>
 
       {modal && (
         <Modal title={modal.mode === "new" ? "Novo pedido" : `Editar ${modal.data.numero}`} onClose={() => setModal(null)} wide>
-          <OrderForm data={modal.data} clients={clients} products={products} onSave={save} onCancel={() => setModal(null)} />
+          <OrderForm data={modal.data} clients={clients} products={products} onSave={save} saving={saving} onCancel={() => setModal(null)} />
         </Modal>
       )}
     </div>
   );
 }
-function OrderForm({ data, clients, products, onSave, onCancel }) {
+function OrderForm({ data, clients, products, onSave, saving, onCancel }) {
   const [form, setForm] = useState(data);
   const [pickProduto, setPickProduto] = useState("");
   const [pickQtd, setPickQtd] = useState(1);
@@ -1502,9 +1526,9 @@ function OrderForm({ data, clients, products, onSave, onCancel }) {
     <form onSubmit={(e) => { e.preventDefault(); onSave(form); }}>
       <div className="cc-form-grid">
         <Field label="Cliente" span={3}>
-          <Select value={form.cliente} onChange={set("cliente")} required>
+          <Select value={form.clienteId || ""} onChange={set("clienteId")} required>
             <option value="">Selecione...</option>
-            {clients.map((c) => <option key={c.id}>{c.nome}</option>)}
+            {clients.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
           </Select>
         </Field>
       </div>
@@ -1550,8 +1574,8 @@ function OrderForm({ data, clients, products, onSave, onCancel }) {
         <Field label="Observações" span={2}><TextArea value={form.obs} onChange={set("obs")} /></Field>
       </div>
       <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
-        <GhostButton onClick={onCancel}>Cancelar</GhostButton>
-        <GoldButton type="submit">Salvar pedido</GoldButton>
+        <GhostButton onClick={onCancel} disabled={saving}>Cancelar</GhostButton>
+        <GoldButton type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar pedido"}</GoldButton>
       </div>
     </form>
   );
@@ -1614,7 +1638,7 @@ function PrecificacaoView() {
 
 /* ---------------- Fluxo de Caixa ---------------- */
 
-function CaixaView({ cashflow }) {
+function CaixaView({ cashflow, loading, loadError }) {
   const [period, setPeriod] = useState("Mês");
   const entradas = cashflow.filter((c) => c.tipo === "Entrada").reduce((s, c) => s + c.valor, 0);
   const saidas = cashflow.filter((c) => c.tipo === "Saída").reduce((s, c) => s + c.valor, 0);
@@ -1637,6 +1661,11 @@ function CaixaView({ cashflow }) {
           </div>
         }
       />
+      {loadError && (
+        <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#B94A48", marginBottom: 14 }}>
+          Erro ao carregar o fluxo de caixa: {loadError}
+        </p>
+      )}
       <div className="cc-grid-stats" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))" }}>
         <StatCard icon={ArrowUpRight} label="Entradas" value={money(entradas)} accent={GREEN} />
         <StatCard icon={ArrowDownRight} label="Saídas" value={money(Math.abs(saidas))} accent="#B5533D" />
@@ -1645,18 +1674,22 @@ function CaixaView({ cashflow }) {
       </div>
 
       <div className="cc-card" style={{ padding: 0, marginTop: 4 }}>
-        <Table
-          columns={["Descrição", "Tipo", "Data", "Valor"]}
-          rows={cashflow}
-          renderRow={(c) => (
-            <tr key={c.id}>
-              <td style={td}>{c.desc}</td>
-              <td style={td}><Badge tone={c.tipo === "Entrada" ? "green" : "red"}>{c.tipo}</Badge></td>
-              <td style={td}>{new Date(c.data + "T00:00").toLocaleDateString("pt-BR")}</td>
-              <td style={{ ...td, fontWeight: 700, color: c.valor >= 0 ? GREEN : "#B5533D" }}>{money(c.valor)}</td>
-            </tr>
-          )}
-        />
+        {loading ? (
+          <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A968F", padding: 20 }}>Carregando fluxo de caixa...</p>
+        ) : (
+          <Table
+            columns={["Descrição", "Tipo", "Data", "Valor"]}
+            rows={cashflow}
+            renderRow={(c) => (
+              <tr key={c.id}>
+                <td style={td}>{c.desc}</td>
+                <td style={td}><Badge tone={c.tipo === "Entrada" ? "green" : "red"}>{c.tipo}</Badge></td>
+                <td style={td}>{new Date(c.data + "T00:00").toLocaleDateString("pt-BR")}</td>
+                <td style={{ ...td, fontWeight: 700, color: c.valor >= 0 ? GREEN : "#B5533D" }}>{money(c.valor)}</td>
+              </tr>
+            )}
+          />
+        )}
       </div>
     </div>
   );
@@ -1664,18 +1697,49 @@ function CaixaView({ cashflow }) {
 
 /* ---------------- Relatórios ---------------- */
 
-function RelatoriosView({ products, clients }) {
+function RelatoriosView({ products, clients, orders, loading }) {
+  // Quantidade vendida por produto, somando os itens de pedidos que não foram cancelados
+  const vendidoPorProduto = {};
+  orders.filter((o) => o.status !== "Cancelado").forEach((o) => {
+    (o.itens || []).forEach((i) => {
+      if (!i.productId) return;
+      vendidoPorProduto[i.productId] = (vendidoPorProduto[i.productId] || 0) + i.qtd;
+    });
+  });
+
+  const maisVendidos = products
+    .map((p) => ({ label: p.name, qty: vendidoPorProduto[p.id] || 0 }))
+    .filter((p) => p.qty > 0)
+    .sort((a, b) => b.qty - a.qty)
+    .map((p) => ({ label: p.label, value: `${p.qty} un.` }));
+
+  const lucroPorCategoriaMap = {};
+  products.forEach((p) => {
+    const qty = vendidoPorProduto[p.id] || 0;
+    if (qty === 0) return;
+    const cat = p.category || "Sem categoria";
+    lucroPorCategoriaMap[cat] = (lucroPorCategoriaMap[cat] || 0) + (p.lucro || 0) * qty;
+  });
+  const lucroPorCategoria = Object.entries(lucroPorCategoriaMap)
+    .sort((a, b) => b[1] - a[1])
+    .map(([label, value]) => ({ label, value: money(value) }));
+
+  const produtosParados = products
+    .filter((p) => !vendidoPorProduto[p.id])
+    .map((p) => ({ label: p.name, value: `${p.quantidade} un. em estoque` }));
+
   const reports = [
-    { title: "Produtos mais vendidos", data: topProducts.map((t) => ({ label: t.name, value: `${t.vendas} un.` })) },
-    { title: "Lucro por categoria", data: salesByCategory.map((c) => ({ label: c.name, value: `${c.value}%` })) },
+    { title: "Produtos mais vendidos", data: maisVendidos },
+    { title: "Lucro por categoria", data: lucroPorCategoria },
     { title: "Clientes que mais compram", data: [...clients].sort((a, b) => b.totalGasto - a.totalGasto).map((c) => ({ label: c.nome, value: money(c.totalGasto) })) },
     { title: "Produtos com estoque baixo", data: products.filter((p) => p.quantidade <= p.estoqueMinimo).map((p) => ({ label: p.name, value: `${p.quantidade} un.` })) },
-    { title: "Produtos sem movimentação", data: products.filter((p) => p.quantidade > 10).map((p) => ({ label: p.name, value: `${p.quantidade} un. paradas` })) },
+    { title: "Produtos sem movimentação", data: produtosParados },
     { title: "Lucro por produto", data: products.map((p) => ({ label: p.name, value: money(p.lucro) })) },
   ];
   return (
     <div>
       <SectionTitle title="Relatórios" subtitle="Análises rápidas para decisões de negócio" />
+      {loading && <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A968F", marginBottom: 14 }}>Carregando relatórios...</p>}
       <div className="cc-grid-charts">
         {reports.map((r) => (
           <div key={r.title} className="cc-card" style={{ padding: 20 }}>
@@ -1834,10 +1898,10 @@ export default function App() {
   const [productsLoading, setProductsLoading] = useState(true);
   const [productsError, setProductsError] = useState("");
 
-  const [clients, setClients] = useState(seedClients);
+  const [clients, setClients] = useState([]);
   const [purchases, setPurchases] = useState([]);
-  const [orders, setOrders] = useState(seedOrders);
-  const [cashflow, setCashflow] = useState(cashflowSeed);
+  const [orders, setOrders] = useState([]);
+  const [cashflow, setCashflow] = useState([]);
 
   // Verifica se já existe uma sessão ativa e escuta mudanças (login/logout em outra aba, expiração de token)
   useEffect(() => {
@@ -1862,7 +1926,7 @@ export default function App() {
     getCurrentProfile().then(setProfile).catch((err) => console.error("Erro ao carregar perfil:", err));
   }, [loggedIn]);
 
-  // Carrega produtos, categorias e fornecedores reais do Supabase assim que loga
+  // Carrega produtos, categorias, fornecedores, clientes, pedidos e caixa reais do Supabase assim que loga
   useEffect(() => {
     if (!loggedIn) return;
     setProductsLoading(true);
@@ -1871,11 +1935,17 @@ export default function App() {
       listProducts(),
       listCategories(),
       listSuppliers(),
+      listClients(),
+      listOrders(),
+      listCashflow(),
     ])
-      .then(([productRows, categoryRows, supplierRows]) => {
+      .then(([productRows, categoryRows, supplierRows, clientRows, orderRows, cashflowRows]) => {
         setProducts(productRows);
         setCategories(categoryRows);
         setSuppliers(supplierRows);
+        setClients(clientRows);
+        setOrders(orderRows);
+        setCashflow(cashflowRows);
       })
       .catch((err) => setProductsError(err.message))
       .finally(() => setProductsLoading(false));
@@ -1909,35 +1979,25 @@ export default function App() {
     addCashflow(`Compra ${produto ? produto.code : ""} — ${form.fornecedor}`, -(valorTotal + frete));
   }
 
-  // Pedido pago -> baixa estoque das peças, credita histórico do cliente e lança entrada no caixa (uma única vez)
-  // Cancelamento de um pedido já baixado -> estorna estoque, cliente e caixa
-  function handleOrderStatusChange(orderId, newStatus) {
-    setOrders((prevOrders) => {
-      const order = prevOrders.find((o) => o.id === orderId);
-      if (!order) return prevOrders;
-
-      const passaAPago = ["Pago", "Separando", "Enviado", "Entregue"].includes(newStatus) && !order.baixado;
-      const cancelaJaBaixado = newStatus === "Cancelado" && order.baixado;
-
-      if (passaAPago) {
-        setProducts((prev) => prev.map((p) => {
-          const item = (order.itens || []).find((i) => String(i.productId) === String(p.id));
-          return item ? { ...p, quantidade: Math.max(0, p.quantidade - item.qtd) } : p;
-        }));
-        setClients((prev) => prev.map((c) => c.nome === order.cliente ? { ...c, totalGasto: (c.totalGasto || 0) + order.total, qtdPedidos: (c.qtdPedidos || 0) + 1 } : c));
-        addCashflow(`Venda ${order.numero} — ${order.cliente}`, order.total);
-      }
-      if (cancelaJaBaixado) {
-        setProducts((prev) => prev.map((p) => {
-          const item = (order.itens || []).find((i) => String(i.productId) === String(p.id));
-          return item ? { ...p, quantidade: p.quantidade + item.qtd } : p;
-        }));
-        setClients((prev) => prev.map((c) => c.nome === order.cliente ? { ...c, totalGasto: Math.max(0, (c.totalGasto || 0) - order.total), qtdPedidos: Math.max(0, (c.qtdPedidos || 0) - 1) } : c));
-        addCashflow(`Estorno ${order.numero} (cancelado) — ${order.cliente}`, -order.total);
-      }
-
-      return prevOrders.map((o) => o.id === orderId ? { ...o, status: newStatus, baixado: passaAPago ? true : cancelaJaBaixado ? false : o.baixado } : o);
-    });
+  // Muda só o status do pedido — baixar estoque, creditar cliente e lançar no
+  // caixa (ou estornar, se cancelado) acontece sozinho no banco via trigger.
+  // Depois é só rebuscar tudo que pode ter sido afetado.
+  async function handleOrderStatusChange(orderId, newStatus) {
+    try {
+      await updateOrderStatus(orderId, newStatus);
+      const [freshOrders, freshProducts, freshClients, freshCashflow] = await Promise.all([
+        listOrders(),
+        listProducts(),
+        listClients(),
+        listCashflow(),
+      ]);
+      setOrders(freshOrders);
+      setProducts(freshProducts);
+      setClients(freshClients);
+      setCashflow(freshCashflow);
+    } catch (err) {
+      alert("Erro ao atualizar status do pedido: " + err.message);
+    }
   }
 
   if (!authChecked) return null;
@@ -2014,14 +2074,14 @@ export default function App() {
         <main style={{ padding: "22px 24px 60px" }}>
           {active === "dashboard" && <Dashboard products={products} />}
           {active === "produtos" && <ProdutosView products={products} setProducts={setProducts} suppliers={suppliers} categories={categories} loading={productsLoading} loadError={productsError} />}
-          {active === "clientes" && <ClientesView clients={clients} setClients={setClients} />}
+          {active === "clientes" && <ClientesView clients={clients} setClients={setClients} loading={productsLoading} loadError={productsError} />}
           {active === "fornecedores" && <FornecedoresView suppliers={suppliers} setSuppliers={setSuppliers} loading={productsLoading} loadError={productsError} />}
           {active === "compras" && <ComprasView purchases={purchases} suppliers={suppliers} products={products} onRegister={registerPurchase} />}
           {active === "estoque" && <EstoqueView products={products} />}
-          {active === "pedidos" && <PedidosView orders={orders} setOrders={setOrders} clients={clients} products={products} onStatusChange={handleOrderStatusChange} />}
+          {active === "pedidos" && <PedidosView orders={orders} setOrders={setOrders} clients={clients} products={products} onStatusChange={handleOrderStatusChange} loading={productsLoading} loadError={productsError} />}
           {active === "precificacao" && <PrecificacaoView />}
-          {active === "caixa" && <CaixaView cashflow={cashflow} />}
-          {active === "relatorios" && <RelatoriosView products={products} clients={clients} />}
+          {active === "caixa" && <CaixaView cashflow={cashflow} loading={productsLoading} loadError={productsError} />}
+          {active === "relatorios" && <RelatoriosView products={products} clients={clients} orders={orders} loading={productsLoading} />}
           {active === "catalogo" && <CatalogoView products={products} />}
           {active === "config" && <ConfiguracoesView />}
         </main>

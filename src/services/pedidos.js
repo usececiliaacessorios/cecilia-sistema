@@ -1,17 +1,48 @@
 import { supabase } from "../lib/supabaseClient";
 
+// Converte uma linha de "orders" (snake_case, com joins em clients/order_items)
+// para o formato camelCase que as telas do app usam.
+function mapOrderRow(row) {
+  const itens = (row.order_items || []).map((i) => ({
+    id: i.id,
+    productId: i.products?.id ?? null,
+    code: i.products?.code ?? "",
+    name: i.products?.name ?? "",
+    qtd: i.qtd,
+    preco: i.preco_unit,
+  }));
+  return {
+    id: row.id,
+    numero: row.numero,
+    clienteId: row.cliente_id,
+    cliente: row.clients?.nome ?? "",
+    itens,
+    produtos: itens.map((i) => `${i.name} x${i.qtd}`).join(", "),
+    desconto: row.desconto ?? 0,
+    forma: row.forma_pagamento ?? "",
+    parcelas: row.parcelas ?? 1,
+    status: row.status,
+    rastreio: row.rastreio ?? "",
+    transportadora: row.transportadora ?? "",
+    obs: row.obs ?? "",
+    total: row.total ?? 0,
+    baixado: row.baixado,
+    data: row.data,
+  };
+}
+
 export async function listOrders() {
   const { data, error } = await supabase
     .from("orders")
     .select(`
       *,
       clients ( nome ),
-      order_items ( id, qtd, preco_unit, products ( name, code ) )
+      order_items ( id, qtd, preco_unit, products ( id, name, code ) )
     `)
     .order("created_at", { ascending: false });
 
   if (error) throw error;
-  return data;
+  return data.map(mapOrderRow);
 }
 
 // Cria o pedido e, em seguida, os itens. O total é recalculado sozinho pelo
@@ -46,6 +77,41 @@ export async function createOrder(form) {
   if (itemsError) throw itemsError;
 
   return order;
+}
+
+// Edita um pedido existente: atualiza os campos do pedido e substitui os
+// itens (apaga os antigos e insere os novos) — o total é recalculado
+// sozinho pelo trigger assim que os itens mudam.
+export async function updateOrder(id, form) {
+  const { error: orderError } = await supabase
+    .from("orders")
+    .update({
+      cliente_id: form.clienteId,
+      desconto: Number(form.desconto) || 0,
+      forma_pagamento: form.forma,
+      parcelas: Number(form.parcelas) || 1,
+      status: form.status,
+      transportadora: form.transportadora,
+      rastreio: form.rastreio,
+      obs: form.obs,
+    })
+    .eq("id", id);
+
+  if (orderError) throw orderError;
+
+  const { error: deleteError } = await supabase.from("order_items").delete().eq("order_id", id);
+  if (deleteError) throw deleteError;
+
+  const itens = (form.itens || []).map((i) => ({
+    order_id: id,
+    produto_id: i.productId,
+    qtd: i.qtd,
+    preco_unit: i.preco,
+  }));
+  if (itens.length > 0) {
+    const { error: itemsError } = await supabase.from("order_items").insert(itens);
+    if (itemsError) throw itemsError;
+  }
 }
 
 // Só isso: mudar o status. Toda a automação (baixar estoque, creditar cliente,
