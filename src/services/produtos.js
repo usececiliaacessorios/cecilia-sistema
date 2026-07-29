@@ -30,6 +30,7 @@ function mapProductRow(row) {
     quantidade: row.quantidade,
     estoqueMinimo: row.estoque_minimo,
     localizacao: row.localizacao,
+    observacoes: row.observacoes ?? "",
   };
 }
 
@@ -80,6 +81,7 @@ export async function createProduct(form) {
       quantidade: Number(form.quantidade) || 0,
       estoque_minimo: Number(form.estoqueMinimo) || 5,
       localizacao: form.localizacao,
+      observacoes: form.observacoes,
     })
     .select()
     .single();
@@ -106,6 +108,7 @@ export async function updateProduct(id, form) {
       quantidade: Number(form.quantidade) || 0,
       estoque_minimo: Number(form.estoqueMinimo) || 5,
       localizacao: form.localizacao,
+      observacoes: form.observacoes,
     })
     .eq("id", id)
     .select()

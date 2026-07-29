@@ -765,7 +765,7 @@ function emptyProduct(categories) {
     banho: "", cor: "", pedra: "", garantia: "05 meses", peso: "",
     fornecedorId: "", dataCompra: "", valorPago: "", freteRateado: "",
     precoSugerido: "", margem: 100, promocao: false, disponibilidade: "Pronta entrega",
-    quantidade: "", estoqueMinimo: "", localizacao: "",
+    quantidade: "", estoqueMinimo: "", localizacao: "", observacoes: "",
   };
 }
 
@@ -1106,6 +1106,11 @@ function ProductForm({ data, suppliers, categories, onSave, saving, onCancel, pr
         <Field label="Quantidade"><TextInput type="number" value={form.quantidade} onChange={set("quantidade")} /></Field>
         <Field label="Estoque mínimo"><TextInput type="number" value={form.estoqueMinimo} onChange={set("estoqueMinimo")} /></Field>
         <Field label="Localização física"><TextInput value={form.localizacao} onChange={set("localizacao")} placeholder="ex: Gaveta A1" /></Field>
+      </div>
+
+      <p className="cc-form-group-title">Observações</p>
+      <div className="cc-form-grid" style={{ gridTemplateColumns: "1fr" }}>
+        <Field label="Observações"><TextArea value={form.observacoes} onChange={set("observacoes")} placeholder="ex: disponível também em banho prata, consulte disponibilidade..." /></Field>
       </div>
 
       <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 22 }}>

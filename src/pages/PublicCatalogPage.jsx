@@ -100,9 +100,14 @@ export default function PublicCatalogPage() {
                 </div>
                 <p style={{ fontFamily: "Manrope", fontSize: 11, fontWeight: 700, color: GOLD, margin: 0, letterSpacing: ".04em" }}>{p.code}</p>
                 <p style={{ fontFamily: "Cormorant Garamond", fontSize: 19, fontWeight: 600, margin: "3px 0 6px", color: INK }}>{p.name}</p>
-                <p style={{ fontFamily: "Manrope", fontSize: 12, color: "#7A897F", margin: "0 0 10px", lineHeight: 1.5 }}>
+                <p style={{ fontFamily: "Manrope", fontSize: 12, color: "#7A897F", margin: p.observacoes ? "0 0 4px" : "0 0 10px", lineHeight: 1.5 }}>
                   {[detalhes, p.garantia ? `Garantia ${p.garantia}` : ""].filter(Boolean).join(" · ")}
                 </p>
+                {p.observacoes && (
+                  <p style={{ fontFamily: "Manrope", fontSize: 12, color: "#8A6B2E", margin: "0 0 10px", lineHeight: 1.5, fontStyle: "italic" }}>
+                    {p.observacoes}
+                  </p>
+                )}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                   <span style={{ fontFamily: "Cormorant Garamond", fontSize: 22, fontWeight: 700, color: GREEN }}>{money(p.preco_sugerido)}</span>
                   <div style={{ display: "flex", gap: 6 }}>
