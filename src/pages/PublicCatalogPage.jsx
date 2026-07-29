@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { ImagePlus, MessageCircle, ShoppingBag, X } from "lucide-react";
+import { ImagePlus, MessageCircle, ShoppingBag, X, Percent } from "lucide-react";
 import { listPublicCatalog } from "../services/produtos";
 import { GREEN, GOLD, CREAM, INK, FONT_IMPORT, money } from "../App";
 
 const TABS = ["Pronta entrega", "Sob encomenda"];
+const DISCOUNT_THRESHOLD = 100;
+const DISCOUNT_RATE = 0.15;
+const WHATSAPP_NUMBER = "5566999428631";
 
 export default function PublicCatalogPage() {
   const [items, setItems] = useState([]);
@@ -34,11 +37,16 @@ export default function PublicCatalogPage() {
   }
 
   const cartCount = cart.reduce((s, i) => s + i.qty, 0);
-  const cartTotal = cart.reduce((s, i) => s + i.qty * i.preco, 0);
+  const cartSubtotal = cart.reduce((s, i) => s + i.qty * i.preco, 0);
+  const discountApplies = cartSubtotal > DISCOUNT_THRESHOLD;
+  const discountValue = discountApplies ? cartSubtotal * DISCOUNT_RATE : 0;
+  const cartTotal = cartSubtotal - discountValue;
   const cartMessage = encodeURIComponent(
     `Olá! Tenho interesse nestas peças:\n` +
     cart.map((i) => `- ${i.name}${i.code ? ` (${i.code})` : ""} x${i.qty} — ${money(i.preco * i.qty)}`).join("\n") +
-    `\n\nTotal: ${money(cartTotal)}`
+    (discountApplies
+      ? `\n\nSubtotal: ${money(cartSubtotal)}\nDesconto (15%): -${money(discountValue)}\nTotal: ${money(cartTotal)}`
+      : `\n\nTotal: ${money(cartTotal)}`)
   );
 
   return (
@@ -68,6 +76,16 @@ export default function PublicCatalogPage() {
         <h1 style={{ fontFamily: "Cormorant Garamond", fontSize: 34, color: GREEN, margin: 0, letterSpacing: ".02em" }}>Cecília</h1>
         <p style={{ fontFamily: "Cormorant Garamond", fontStyle: "italic", fontSize: 16, color: GOLD, margin: "4px 0 0" }}>Catálogo de peças</p>
       </header>
+
+      <div style={{ display: "flex", justifyContent: "center", padding: "0 16px", marginBottom: 22 }}>
+        <div style={{
+          display: "inline-flex", alignItems: "center", gap: 8, background: GOLD, color: "#fff",
+          borderRadius: 30, padding: "10px 20px", fontFamily: "Manrope", fontSize: 13, fontWeight: 700, textAlign: "center",
+        }}>
+          <Percent size={15} />
+          15% de desconto em compras acima de {money(DISCOUNT_THRESHOLD)}!
+        </div>
+      </div>
 
       <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 26, flexWrap: "wrap", padding: "0 16px" }}>
         {TABS.map((t) => (
@@ -114,7 +132,7 @@ export default function PublicCatalogPage() {
                     <button onClick={() => addToCart(p)} className="cc-btn-gold" style={{ padding: "8px 10px", fontSize: 12 }} title="Adicionar à sacola">
                       <ShoppingBag size={14} />
                     </button>
-                    <a href={`https://wa.me/?text=${msg}`} target="_blank" rel="noopener noreferrer" className="cc-btn-gold" style={{ padding: "8px 12px", fontSize: 12 }}>
+                    <a href={`https://wa.me/${WHATSAPP_NUMBER}?text=${msg}`} target="_blank" rel="noopener noreferrer" className="cc-btn-gold" style={{ padding: "8px 12px", fontSize: 12 }}>
                       <MessageCircle size={14} /> Compartilhar
                     </a>
                   </div>
@@ -175,11 +193,30 @@ export default function PublicCatalogPage() {
                       </div>
                     ))}
                   </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderTop: "1px solid #EFEBE0", marginBottom: 16 }}>
-                    <span style={{ fontFamily: "Manrope", fontSize: 13.5, fontWeight: 700, color: INK }}>Total</span>
-                    <span style={{ fontFamily: "Cormorant Garamond", fontSize: 24, fontWeight: 700, color: GREEN }}>{money(cartTotal)}</span>
+                  <div style={{ borderTop: "1px solid #EFEBE0", paddingTop: 12, marginBottom: 16 }}>
+                    {discountApplies && (
+                      <>
+                        <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0" }}>
+                          <span style={{ fontFamily: "Manrope", fontSize: 12.5, color: "#7A897F" }}>Subtotal</span>
+                          <span style={{ fontFamily: "Manrope", fontSize: 12.5, color: "#7A897F" }}>{money(cartSubtotal)}</span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0" }}>
+                          <span style={{ fontFamily: "Manrope", fontSize: 12.5, color: "#8A6B2E", fontWeight: 700 }}>Desconto (15%)</span>
+                          <span style={{ fontFamily: "Manrope", fontSize: 12.5, color: "#8A6B2E", fontWeight: 700 }}>-{money(discountValue)}</span>
+                        </div>
+                      </>
+                    )}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 6 }}>
+                      <span style={{ fontFamily: "Manrope", fontSize: 13.5, fontWeight: 700, color: INK }}>Total</span>
+                      <span style={{ fontFamily: "Cormorant Garamond", fontSize: 24, fontWeight: 700, color: GREEN }}>{money(cartTotal)}</span>
+                    </div>
                   </div>
-                  <a href={`https://wa.me/?text=${cartMessage}`} target="_blank" rel="noopener noreferrer" className="cc-btn-gold" style={{ width: "100%", justifyContent: "center" }}>
+                  {!discountApplies && (
+                    <p style={{ fontFamily: "Manrope", fontSize: 11.5, color: "#8A968F", margin: "-10px 0 16px", textAlign: "center" }}>
+                      Faltam {money(DISCOUNT_THRESHOLD - cartSubtotal)} para 15% de desconto!
+                    </p>
+                  )}
+                  <a href={`https://wa.me/${WHATSAPP_NUMBER}?text=${cartMessage}`} target="_blank" rel="noopener noreferrer" className="cc-btn-gold" style={{ width: "100%", justifyContent: "center" }}>
                     <MessageCircle size={16} /> Enviar pelo WhatsApp
                   </a>
                 </>
