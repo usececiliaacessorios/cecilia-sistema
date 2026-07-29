@@ -1440,7 +1440,7 @@ function EstoqueView({ products, loading, loadError }) {
             columns={["Código", "Produto", "Localização", "Qtd.", "Mínimo", "Status"]}
             rows={filtered}
             renderRow={(p) => {
-              const status = p.quantidade === 0 ? "Vendido" : p.quantidade <= p.estoqueMinimo ? "Reservado" : "Disponível";
+              const status = p.quantidade === 0 ? "Vendido" : "Disponível";
               return (
                 <tr key={p.id}>
                   <td style={td}><span style={{ fontWeight: 700, color: GREEN }}>{p.code}</span></td>
@@ -1514,6 +1514,11 @@ function PedidosView({ orders, setOrders, clients, products, onStatusChange, loa
       {loadError && (
         <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#B94A48", marginBottom: 14 }}>
           Erro ao carregar pedidos: {loadError}
+        </p>
+      )}
+      {!loading && clients.length === 0 && (
+        <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A4530", background: "#FBF0EA", border: "1px solid #EED9CC", borderRadius: 12, padding: "12px 16px", marginBottom: 16 }}>
+          Você ainda não tem nenhum cliente cadastrado — cadastre pelo menos um em "Clientes" antes de criar um pedido.
         </p>
       )}
       <div className="cc-card" style={{ padding: 0 }}>
