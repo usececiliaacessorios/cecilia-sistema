@@ -17,7 +17,7 @@ import { listProducts, listCategories, createProduct, updateProduct, deleteProdu
 import { listSuppliers, createSupplier, updateSupplier, deleteSupplier } from "./services/fornecedores";
 import { listClients, createClient, updateClient, deleteClient } from "./services/clientes";
 import { listOrders, createOrder, updateOrder, updateOrderStatus, deleteOrder } from "./services/pedidos";
-import { listCashflow, createCashflowEntry } from "./services/caixa";
+import { listCashflow, createCashflowEntry, updateCashflowEntry, deleteCashflowEntry } from "./services/caixa";
 
 /* ============================================================
    CECÍLIA — Sistema de Gestão
@@ -1498,7 +1498,9 @@ function EstoqueView({ products, loading, loadError }) {
 
 const ORDER_STATUSES = ["Reservado", "Aguardando pagamento", "Pago", "Separando", "Enviado", "Entregue", "Cancelado"];
 
-function PedidosView({ orders, setOrders, clients, products, onStatusChange, loading, loadError }) {
+// Painel de pedidos reutilizável — usado na tela de Pedidos (lista completa)
+// e na seção "Pedidos recentes" do Fluxo de Caixa (lista curta, sem botão de novo).
+function PedidosPanel({ orders, setOrders, clients, products, onStatusChange, loading, loadError, title, subtitle, limit, showNewButton = true }) {
   const [modal, setModal] = useState(null);
   const [saving, setSaving] = useState(false);
   function openNew() {
@@ -1538,15 +1540,19 @@ function PedidosView({ orders, setOrders, clients, products, onStatusChange, loa
     }
   }
 
+  const displayOrders = limit ? orders.slice(0, limit) : orders;
+
   return (
     <div>
-      <SectionTitle title="Pedidos" subtitle={`${orders.length} pedidos registrados — status "Pago" baixa estoque, credita o caixa e atualiza o cliente`} action={<GoldButton icon={Plus} onClick={openNew} disabled={loading || clients.length === 0}>Novo pedido</GoldButton>} />
+      {title && (
+        <SectionTitle title={title} subtitle={subtitle} action={showNewButton ? <GoldButton icon={Plus} onClick={openNew} disabled={loading || clients.length === 0}>Novo pedido</GoldButton> : undefined} />
+      )}
       {loadError && (
         <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#B94A48", marginBottom: 14 }}>
           Erro ao carregar pedidos: {loadError}
         </p>
       )}
-      {!loading && clients.length === 0 && (
+      {showNewButton && !loading && clients.length === 0 && (
         <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A4530", background: "#FBF0EA", border: "1px solid #EED9CC", borderRadius: 12, padding: "12px 16px", marginBottom: 16 }}>
           Você ainda não tem nenhum cliente cadastrado — cadastre pelo menos um em "Clientes" antes de criar um pedido.
         </p>
@@ -1554,10 +1560,12 @@ function PedidosView({ orders, setOrders, clients, products, onStatusChange, loa
       <div className="cc-card" style={{ padding: 0 }}>
         {loading ? (
           <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A968F", padding: 20 }}>Carregando pedidos...</p>
+        ) : displayOrders.length === 0 ? (
+          <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A968F", padding: 20 }}>Nenhum pedido registrado ainda.</p>
         ) : (
           <Table
             columns={["Número", "Cliente", "Produtos", "Total", "Pagamento", "Status", ""]}
-            rows={orders}
+            rows={displayOrders}
             renderRow={(o) => (
               <tr key={o.id}>
                 <td style={td}><span style={{ fontWeight: 700, color: GREEN }}>{o.numero}</span></td>
@@ -1589,6 +1597,17 @@ function PedidosView({ orders, setOrders, clients, products, onStatusChange, loa
         </Modal>
       )}
     </div>
+  );
+}
+
+function PedidosView({ orders, setOrders, clients, products, onStatusChange, loading, loadError }) {
+  return (
+    <PedidosPanel
+      orders={orders} setOrders={setOrders} clients={clients} products={products}
+      onStatusChange={onStatusChange} loading={loading} loadError={loadError}
+      title="Pedidos" subtitle={`${orders.length} pedidos registrados — status "Pago" baixa estoque, credita o caixa e atualiza o cliente`}
+      showNewButton
+    />
   );
 }
 function OrderForm({ data, clients, products, onSave, saving, onCancel }) {
@@ -1724,25 +1743,77 @@ function PrecificacaoView() {
 
 /* ---------------- Fluxo de Caixa ---------------- */
 
-function CaixaView({ cashflow, setCashflow, loading, loadError }) {
+function isInPeriod(dateStr, period) {
+  if (!dateStr) return false;
+  const d = new Date(dateStr + "T00:00");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((today - d) / (1000 * 60 * 60 * 24));
+  if (period === "Dia") return diffDays === 0;
+  if (period === "Semana") return diffDays >= 0 && diffDays <= 6;
+  if (period === "Mês") return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth();
+  if (period === "Ano") return d.getFullYear() === today.getFullYear();
+  return true;
+}
+
+function origemLabel(origem) {
+  if (origem === "manual") return "Manual";
+  if (origem === "pedido") return "Pedido";
+  if (origem === "compra") return "Compra";
+  if (origem === "estorno") return "Estorno";
+  return origem || "—";
+}
+
+function CaixaView({ cashflow, setCashflow, orders, setOrders, clients, products, onStatusChange, loading, loadError }) {
   const [period, setPeriod] = useState("Mês");
-  const [modalOpen, setModalOpen] = useState(false);
+  const [modal, setModal] = useState(null); // {mode:'new'|'edit', data}
   const [saving, setSaving] = useState(false);
-  const entradas = cashflow.filter((c) => c.tipo === "Entrada").reduce((s, c) => s + c.valor, 0);
-  const saidas = cashflow.filter((c) => c.tipo === "Saída").reduce((s, c) => s + c.valor, 0);
+
+  const filteredCashflow = cashflow.filter((c) => isInPeriod(c.data, period));
+  const entradas = filteredCashflow.filter((c) => c.tipo === "Entrada").reduce((s, c) => s + c.valor, 0);
+  const saidas = filteredCashflow.filter((c) => c.tipo === "Saída").reduce((s, c) => s + c.valor, 0);
   const saldo = entradas + saidas;
+
+  function openNew() {
+    setModal({ mode: "new", data: { tipo: "Saída", desc: "", valor: "", data: new Date().toISOString().slice(0, 10) } });
+  }
+  function openEdit(c) {
+    if (c.origem !== "manual") {
+      alert(`Este lançamento veio de um processo automático (${origemLabel(c.origem)}) e não pode ser editado por aqui. Para ajustar, cancele o pedido/compra de origem na tela correspondente.`);
+      return;
+    }
+    setModal({ mode: "edit", data: { id: c.id, tipo: c.tipo, desc: c.desc, valor: Math.abs(c.valor), data: c.data } });
+  }
 
   async function handleSave(form) {
     setSaving(true);
     try {
-      await createCashflowEntry(form);
+      if (modal.mode === "new") {
+        await createCashflowEntry(form);
+      } else {
+        await updateCashflowEntry(modal.data.id, form);
+      }
       const fresh = await listCashflow();
       setCashflow(fresh);
-      setModalOpen(false);
+      setModal(null);
     } catch (err) {
       alert("Erro ao salvar lançamento: " + err.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function remove(c) {
+    if (c.origem !== "manual") {
+      alert(`Este lançamento veio de um processo automático (${origemLabel(c.origem)}) e não pode ser excluído por aqui. Para remover, cancele o pedido/compra de origem na tela correspondente.`);
+      return;
+    }
+    if (!window.confirm(`Tem certeza que deseja excluir o lançamento "${c.desc}"? Essa ação não pode ser desfeita.`)) return;
+    try {
+      await deleteCashflowEntry(c.id);
+      setCashflow((prev) => prev.filter((x) => x.id !== c.id));
+    } catch (err) {
+      alert("Erro ao excluir lançamento: " + err.message);
     }
   }
 
@@ -1762,7 +1833,7 @@ function CaixaView({ cashflow, setCashflow, loading, loadError }) {
                 }}>{p}</button>
               ))}
             </div>
-            <GoldButton icon={Plus} onClick={() => setModalOpen(true)}>Novo lançamento</GoldButton>
+            <GoldButton icon={Plus} onClick={openNew}>Novo lançamento</GoldButton>
           </div>
         }
       />
@@ -1781,33 +1852,51 @@ function CaixaView({ cashflow, setCashflow, loading, loadError }) {
       <div className="cc-card" style={{ padding: 0, marginTop: 4 }}>
         {loading ? (
           <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A968F", padding: 20 }}>Carregando fluxo de caixa...</p>
+        ) : filteredCashflow.length === 0 ? (
+          <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A968F", padding: 20 }}>Nenhum lançamento neste período.</p>
         ) : (
           <Table
-            columns={["Descrição", "Tipo", "Data", "Valor"]}
-            rows={cashflow}
+            columns={["Descrição", "Tipo", "Data", "Valor", "Origem", ""]}
+            rows={filteredCashflow}
             renderRow={(c) => (
               <tr key={c.id}>
                 <td style={td}>{c.desc}</td>
                 <td style={td}><Badge tone={c.tipo === "Entrada" ? "green" : "red"}>{c.tipo}</Badge></td>
                 <td style={td}>{new Date(c.data + "T00:00").toLocaleDateString("pt-BR")}</td>
                 <td style={{ ...td, fontWeight: 700, color: c.valor >= 0 ? GREEN : "#B5533D" }}>{money(c.valor)}</td>
+                <td style={td}><Badge tone={c.origem === "manual" ? "gold" : "gray"}>{origemLabel(c.origem)}</Badge></td>
+                <td style={td}>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => openEdit(c)} className="cc-icon-btn"><Pencil size={14} /></button>
+                    <button onClick={() => remove(c)} className="cc-icon-btn"><Trash2 size={14} /></button>
+                  </div>
+                </td>
               </tr>
             )}
           />
         )}
       </div>
 
-      {modalOpen && (
-        <Modal title="Novo lançamento" onClose={() => setModalOpen(false)}>
-          <CashflowForm onSave={handleSave} saving={saving} onCancel={() => setModalOpen(false)} />
+      {modal && (
+        <Modal title={modal.mode === "new" ? "Novo lançamento" : "Editar lançamento"} onClose={() => setModal(null)}>
+          <CashflowForm data={modal.data} onSave={handleSave} saving={saving} onCancel={() => setModal(null)} />
         </Modal>
       )}
+
+      <div style={{ marginTop: 36 }}>
+        <p className="cc-chart-title">Pedidos recentes</p>
+        <PedidosPanel
+          orders={orders} setOrders={setOrders} clients={clients} products={products}
+          onStatusChange={onStatusChange} loading={loading} loadError=""
+          limit={8} showNewButton={false}
+        />
+      </div>
     </div>
   );
 }
 
-function CashflowForm({ onSave, saving, onCancel }) {
-  const [form, setForm] = useState({ tipo: "Saída", desc: "", valor: "", data: new Date().toISOString().slice(0, 10) });
+function CashflowForm({ data, onSave, saving, onCancel }) {
+  const [form, setForm] = useState(data);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSave(form); }}>
@@ -2224,7 +2313,7 @@ export default function App() {
           {active === "estoque" && <EstoqueView products={products} loading={productsLoading} loadError={productsError} />}
           {active === "pedidos" && <PedidosView orders={orders} setOrders={setOrders} clients={clients} products={products} onStatusChange={handleOrderStatusChange} loading={productsLoading} loadError={productsError} />}
           {active === "precificacao" && <PrecificacaoView />}
-          {active === "caixa" && <CaixaView cashflow={cashflow} setCashflow={setCashflow} loading={productsLoading} loadError={productsError} />}
+          {active === "caixa" && <CaixaView cashflow={cashflow} setCashflow={setCashflow} orders={orders} setOrders={setOrders} clients={clients} products={products} onStatusChange={handleOrderStatusChange} loading={productsLoading} loadError={productsError} />}
           {active === "relatorios" && <RelatoriosView products={products} clients={clients} orders={orders} cashflow={cashflow} loading={productsLoading} />}
           {active === "catalogo" && <CatalogoView products={products} />}
           {active === "config" && <ConfiguracoesView />}
