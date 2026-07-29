@@ -40,7 +40,7 @@ export const FONT_IMPORT = `
 const CATEGORY_PREFIX = {
   "Brincos": "BR", "Colares": "CL", "Pulseiras": "PU", "Anéis": "AN",
   "Conjuntos": "CJ", "Tornozeleiras": "TO", "Piercings": "PI",
-  "Chokers": "CH", "Pingentes": "PN",
+  "Chokers": "CH", "Pingentes": "PN", "Relógios": "RL",
 };
 const CATEGORIES = Object.keys(CATEGORY_PREFIX);
 
