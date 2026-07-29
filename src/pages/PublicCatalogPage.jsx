@@ -35,11 +35,28 @@ const PROMO_BANNER_TEXT =
   `✨ Compre ${DISCOUNT_TIER_1_QTY} peças e ganhe ${DISCOUNT_TIER_1_RATE * 100}% OFF · ` +
   `💚 Compre ${DISCOUNT_TIER_2_QTY} ou mais e ganhe ${DISCOUNT_TIER_2_RATE * 100}% OFF!`;
 
+function ChipRow({ options, value, onChange }) {
+  return (
+    <div className="cc-filter-row">
+      {options.map((opt) => (
+        <button key={opt} onClick={() => onChange(opt)} style={{
+          fontFamily: "Manrope", fontSize: 12.5, fontWeight: 700, padding: "8px 18px", borderRadius: 20,
+          border: `1px solid ${value === opt ? GREEN : "#E2E0D6"}`,
+          background: value === opt ? GREEN : "#fff", color: value === opt ? "#fff" : "#5B6B63", cursor: "pointer",
+          flexShrink: 0, whiteSpace: "nowrap",
+        }}>{opt}</button>
+      ))}
+    </div>
+  );
+}
+
 export default function PublicCatalogPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [tab, setTab] = useState("Pronta entrega");
+  const [categoryFilter, setCategoryFilter] = useState("Todas");
+  const [banhoFilter, setBanhoFilter] = useState("Todos");
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
 
@@ -50,7 +67,15 @@ export default function PublicCatalogPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const filtered = items.filter((p) => p.disponibilidade === tab);
+  // Opções geradas a partir dos produtos carregados — cada lojista pode ter categorias/banhos diferentes.
+  const categoryOptions = [...new Set(items.map((p) => p.categoria).filter(Boolean))].sort();
+  const banhoOptions = [...new Set(items.map((p) => p.banho).filter(Boolean))].sort();
+
+  const filtered = items.filter((p) =>
+    p.disponibilidade === tab &&
+    (categoryFilter === "Todas" || p.categoria === categoryFilter) &&
+    (banhoFilter === "Todos" || p.banho === banhoFilter)
+  );
 
   function addToCart(p) {
     setCart((prev) => {
@@ -91,6 +116,9 @@ export default function PublicCatalogPage() {
         .cc-btn-gold:hover { background: #B4923F; }
         .cc-catalog-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(230px,1fr)); gap: 18px; }
         .cc-catalog-card { padding: 16px; }
+        .cc-filter-row { display: flex; gap: 8px; overflow-x: auto; padding: 2px 16px 8px; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+        .cc-filter-row::-webkit-scrollbar { height: 4px; }
+        .cc-filter-row::-webkit-scrollbar-thumb { background: #E2E0D6; border-radius: 4px; }
       `}</style>
 
       <header style={{ padding: "34px 24px 18px", textAlign: "center" }}>
@@ -113,7 +141,7 @@ export default function PublicCatalogPage() {
         </div>
       </div>
 
-      <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 26, flexWrap: "wrap", padding: "0 16px" }}>
+      <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 14, flexWrap: "wrap", padding: "0 16px" }}>
         {TABS.map((t) => (
           <button key={t} onClick={() => setTab(t)} style={{
             fontFamily: "Manrope", fontSize: 13, fontWeight: 700, padding: "9px 22px", borderRadius: 20,
@@ -123,11 +151,18 @@ export default function PublicCatalogPage() {
         ))}
       </div>
 
+      <div style={{ marginBottom: 22 }}>
+        <ChipRow options={["Todas", ...categoryOptions]} value={categoryFilter} onChange={setCategoryFilter} />
+        {banhoOptions.length > 0 && (
+          <ChipRow options={["Todos", ...banhoOptions]} value={banhoFilter} onChange={setBanhoFilter} />
+        )}
+      </div>
+
       <main style={{ padding: "0 24px 60px", maxWidth: 1200, margin: "0 auto" }}>
         {loading && <p style={{ textAlign: "center", fontFamily: "Manrope", color: "#8A968F" }}>Carregando catálogo...</p>}
         {error && <p style={{ textAlign: "center", fontFamily: "Manrope", color: "#B94A48" }}>Erro ao carregar catálogo: {error}</p>}
         {!loading && !error && filtered.length === 0 && (
-          <p style={{ textAlign: "center", fontFamily: "Manrope", color: "#8A968F" }}>Nenhuma peça disponível nesta categoria no momento.</p>
+          <p style={{ textAlign: "center", fontFamily: "Manrope", color: "#8A968F" }}>Nenhuma peça encontrada com esses filtros.</p>
         )}
         <div className="cc-catalog-grid">
           {filtered.map((p) => {
