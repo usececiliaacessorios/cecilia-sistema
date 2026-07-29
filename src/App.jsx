@@ -1383,12 +1383,18 @@ function ComprasView({ purchases, suppliers, products, onRegister }) {
 
 /* ---------------- Estoque ---------------- */
 
-function EstoqueView({ products }) {
+function EstoqueView({ products, loading, loadError }) {
   const statuses = ["Disponível", "Reservado", "Encomendado", "Vendido", "Devolvido"];
   const lowStock = products.filter((p) => p.quantidade <= p.estoqueMinimo);
   return (
     <div>
       <SectionTitle title="Estoque" subtitle="Controle de disponibilidade e localização física das peças" />
+
+      {loadError && (
+        <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#B94A48", marginBottom: 14 }}>
+          Erro ao carregar estoque: {loadError}
+        </p>
+      )}
 
       {lowStock.length > 0 && (
         <div style={{
@@ -1403,23 +1409,27 @@ function EstoqueView({ products }) {
       )}
 
       <div className="cc-card" style={{ padding: 0 }}>
-        <Table
-          columns={["Código", "Produto", "Localização", "Qtd.", "Mínimo", "Status"]}
-          rows={products}
-          renderRow={(p) => {
-            const status = p.quantidade === 0 ? "Vendido" : p.quantidade <= p.estoqueMinimo ? "Reservado" : "Disponível";
-            return (
-              <tr key={p.id}>
-                <td style={td}><span style={{ fontWeight: 700, color: GREEN }}>{p.code}</span></td>
-                <td style={td}>{p.name}</td>
-                <td style={td}>{p.localizacao}</td>
-                <td style={td}>{p.quantidade}</td>
-                <td style={td}>{p.estoqueMinimo}</td>
-                <td style={td}><Badge tone={statusTone(status)}>{status}</Badge></td>
-              </tr>
-            );
-          }}
-        />
+        {loading ? (
+          <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A968F", padding: 20 }}>Carregando estoque...</p>
+        ) : (
+          <Table
+            columns={["Código", "Produto", "Localização", "Qtd.", "Mínimo", "Status"]}
+            rows={products}
+            renderRow={(p) => {
+              const status = p.quantidade === 0 ? "Vendido" : p.quantidade <= p.estoqueMinimo ? "Reservado" : "Disponível";
+              return (
+                <tr key={p.id}>
+                  <td style={td}><span style={{ fontWeight: 700, color: GREEN }}>{p.code}</span></td>
+                  <td style={td}>{p.name}</td>
+                  <td style={td}>{p.localizacao}</td>
+                  <td style={td}>{p.quantidade}</td>
+                  <td style={td}>{p.estoqueMinimo}</td>
+                  <td style={td}><Badge tone={statusTone(status)}>{status}</Badge></td>
+                </tr>
+              );
+            }}
+          />
+        )}
       </div>
 
       <p className="cc-chart-title" style={{ marginTop: 24 }}>Legenda de status</p>
@@ -2077,7 +2087,7 @@ export default function App() {
           {active === "clientes" && <ClientesView clients={clients} setClients={setClients} loading={productsLoading} loadError={productsError} />}
           {active === "fornecedores" && <FornecedoresView suppliers={suppliers} setSuppliers={setSuppliers} loading={productsLoading} loadError={productsError} />}
           {active === "compras" && <ComprasView purchases={purchases} suppliers={suppliers} products={products} onRegister={registerPurchase} />}
-          {active === "estoque" && <EstoqueView products={products} />}
+          {active === "estoque" && <EstoqueView products={products} loading={productsLoading} loadError={productsError} />}
           {active === "pedidos" && <PedidosView orders={orders} setOrders={setOrders} clients={clients} products={products} onStatusChange={handleOrderStatusChange} loading={productsLoading} loadError={productsError} />}
           {active === "precificacao" && <PrecificacaoView />}
           {active === "caixa" && <CaixaView cashflow={cashflow} loading={productsLoading} loadError={productsError} />}
