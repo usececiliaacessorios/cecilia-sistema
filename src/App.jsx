@@ -21,14 +21,14 @@ import { listSuppliers, createSupplier, updateSupplier, deleteSupplier } from ".
    Paleta: verde escuro #1F5E4A · dourado fosco #C8A45A · branco
    ============================================================ */
 
-const GREEN = "#1F5E4A";
+export const GREEN = "#1F5E4A";
 const GREEN_DARK = "#163F32";
-const GOLD = "#C8A45A";
+export const GOLD = "#C8A45A";
 const GOLD_SOFT = "#E4D2A8";
-const CREAM = "#FAF7F1";
-const INK = "#22302B";
+export const CREAM = "#FAF7F1";
+export const INK = "#22302B";
 
-const FONT_IMPORT = `
+export const FONT_IMPORT = `
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,500&family=Manrope:wght@400;500;600;700;800&display=swap');
 `;
 
@@ -84,7 +84,7 @@ const cashflowSeed = [
   { id: 5, tipo: "Saída", desc: "Taxa maquininha", valor: -22.4, data: "2026-07-22" },
 ];
 
-const money = (v) =>
+export const money = (v) =>
   (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 /* ---------------- Shared UI atoms ---------------- */
@@ -602,6 +602,8 @@ function getSheetCell(row, name) {
   return key !== undefined ? row[key] : "";
 }
 
+const DISPONIBILIDADE_OPTIONS = ["Pronta entrega", "Sob encomenda"];
+
 function ImportModal({ categories, onClose, onImported }) {
   const [rows, setRows] = useState([]);
   const [fileName, setFileName] = useState("");
@@ -612,6 +614,11 @@ function ImportModal({ categories, onClose, onImported }) {
   function matchCategory(texto) {
     const alvo = normalizeText(texto);
     return categories.find((c) => normalizeText(c.nome) === alvo);
+  }
+
+  function matchDisponibilidade(texto) {
+    const alvo = normalizeText(texto);
+    return DISPONIBILIDADE_OPTIONS.find((d) => normalizeText(d) === alvo);
   }
 
   async function handleFile(e) {
@@ -637,17 +644,23 @@ function ImportModal({ categories, onClose, onImported }) {
         return;
       }
       const raw = XLSX.utils.sheet_to_json(sheet, { range: headerRowIndex, defval: "" });
+      const headerRow = grid[headerRowIndex];
+      const hasDisponibilidadeColumn = headerRow.some((cell) => normalizeText(cell) === "disponibilidade");
 
       const mapped = raw
         .filter((r) => normalizeText(getSheetCell(r, "Produto")))
         .map((r, i) => {
           const categoriaTexto = String(getSheetCell(r, "Categoria") || "").trim();
           const match = matchCategory(categoriaTexto);
+          const disponibilidadeTexto = String(getSheetCell(r, "Disponibilidade") || "").trim();
+          const disponibilidadeMatch = matchDisponibilidade(disponibilidadeTexto);
           return {
             _key: i,
             name: String(getSheetCell(r, "Produto") || "").trim(),
             categoriaTexto,
             categoryId: match ? match.id : "",
+            disponibilidadeTexto,
+            disponibilidade: disponibilidadeMatch || (!hasDisponibilidadeColumn ? "Pronta entrega" : ""),
             quantidade: parseSheetNumber(getSheetCell(r, "Estoque")),
             valorPago: parseSheetNumber(getSheetCell(r, "Custo da peça")),
             freteRateado: parseSheetNumber(getSheetCell(r, "Frete rateado")),
@@ -670,12 +683,16 @@ function ImportModal({ categories, onClose, onImported }) {
     setRows((prev) => prev.map((r) => (r._key === key ? { ...r, categoryId } : r)));
   }
 
-  const pendingCount = rows.filter((r) => !r.categoryId).length;
+  function setRowDisponibilidade(key, disponibilidade) {
+    setRows((prev) => prev.map((r) => (r._key === key ? { ...r, disponibilidade } : r)));
+  }
+
+  const pendingCount = rows.filter((r) => !r.categoryId || !r.disponibilidade).length;
 
   async function handleConfirm() {
     if (rows.length === 0) return;
     if (pendingCount > 0) {
-      setError("Escolha a categoria de todas as linhas destacadas antes de confirmar.");
+      setError("Escolha a categoria e a disponibilidade de todas as linhas destacadas antes de confirmar.");
       return;
     }
     setImporting(true);
@@ -704,14 +721,14 @@ function ImportModal({ categories, onClose, onImported }) {
         <>
           <p style={{ fontFamily: "Manrope", fontSize: 12.5, color: "#5B6B63", margin: "16px 0 10px" }}>
             <strong>{fileName}</strong> — {rows.length} linhas encontradas
-            {pendingCount > 0 ? `, ${pendingCount} precisam de categoria (destacadas abaixo)` : ", todas com categoria reconhecida"}.
+            {pendingCount > 0 ? `, ${pendingCount} precisam de categoria e/ou disponibilidade (destacadas abaixo)` : ", todas com categoria e disponibilidade reconhecidas"}.
           </p>
           <div style={{ maxHeight: 340, overflowY: "auto", border: "1px solid #EFEBE0", borderRadius: 12 }}>
             <Table
-              columns={["Produto", "Categoria", "Estoque", "Custo peça", "Frete", "Custo total", "Preço venda", "Lucro (planilha)"]}
+              columns={["Produto", "Categoria", "Disponibilidade", "Estoque", "Custo peça", "Frete", "Custo total", "Preço venda", "Lucro (planilha)"]}
               rows={rows}
               renderRow={(r) => (
-                <tr key={r._key} style={{ background: r.categoryId ? "transparent" : "#FBEFEF" }}>
+                <tr key={r._key} style={{ background: (r.categoryId && r.disponibilidade) ? "transparent" : "#FBEFEF" }}>
                   <td style={td}>{r.name}</td>
                   <td style={td}>
                     {r.categoryId ? (
@@ -720,6 +737,16 @@ function ImportModal({ categories, onClose, onImported }) {
                       <Select value={r.categoryId} onChange={(e) => setRowCategory(r._key, e.target.value)} style={{ borderColor: "#D98C8C", minWidth: 160 }}>
                         <option value="">"{r.categoriaTexto || "—"}" — escolher...</option>
                         {categories.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                      </Select>
+                    )}
+                  </td>
+                  <td style={td}>
+                    {r.disponibilidade ? (
+                      <Badge tone={r.disponibilidade === "Pronta entrega" ? "green" : "blue"}>{r.disponibilidade}</Badge>
+                    ) : (
+                      <Select value={r.disponibilidade} onChange={(e) => setRowDisponibilidade(r._key, e.target.value)} style={{ borderColor: "#D98C8C", minWidth: 150 }}>
+                        <option value="">"{r.disponibilidadeTexto || "—"}" — escolher...</option>
+                        {DISPONIBILIDADE_OPTIONS.map((d) => <option key={d} value={d}>{d}</option>)}
                       </Select>
                     )}
                   </td>
@@ -751,7 +778,7 @@ function emptyProduct(categories) {
     categoryId: categories?.[0]?.id || "", collection: "", name: "", photo: "",
     banho: "", cor: "", pedra: "", garantia: "12 meses", peso: "",
     fornecedorId: "", dataCompra: "", valorPago: "", freteRateado: "",
-    precoSugerido: "", margem: 100, promocao: false,
+    precoSugerido: "", margem: 100, promocao: false, disponibilidade: "Pronta entrega",
     quantidade: "", estoqueMinimo: "", localizacao: "",
   };
 }
@@ -976,6 +1003,12 @@ function ProductForm({ data, suppliers, categories, onSave, saving, onCancel, pr
           <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 0" }}>
             <input type="checkbox" checked={!!form.promocao} onChange={set("promocao")} /> <span style={{ fontFamily: "Manrope", fontSize: 13 }}>Sim</span>
           </label>
+        </Field>
+        <Field label="Disponibilidade">
+          <Select value={form.disponibilidade || "Pronta entrega"} onChange={set("disponibilidade")}>
+            <option value="Pronta entrega">Pronta entrega</option>
+            <option value="Sob encomenda">Sob encomenda</option>
+          </Select>
         </Field>
       </div>
 

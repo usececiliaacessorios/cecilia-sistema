@@ -26,6 +26,7 @@ function mapProductRow(row) {
     margem: row.margem ?? 0,
     lucro: row.lucro ?? 0,
     promocao: row.promocao,
+    disponibilidade: row.disponibilidade ?? "Pronta entrega",
     quantidade: row.quantidade,
     estoqueMinimo: row.estoque_minimo,
     localizacao: row.localizacao,
@@ -75,6 +76,7 @@ export async function createProduct(form) {
       custo_total: (Number(form.valorPago) || 0) + (Number(form.freteRateado) || 0),
       preco_sugerido: Number(form.precoSugerido) || 0,
       promocao: !!form.promocao,
+      disponibilidade: form.disponibilidade || "Pronta entrega",
       quantidade: Number(form.quantidade) || 0,
       estoque_minimo: Number(form.estoqueMinimo) || 5,
       localizacao: form.localizacao,
@@ -100,6 +102,7 @@ export async function updateProduct(id, form) {
       peso: form.peso,
       preco_sugerido: Number(form.precoSugerido) || 0,
       promocao: !!form.promocao,
+      disponibilidade: form.disponibilidade || "Pronta entrega",
       quantidade: Number(form.quantidade) || 0,
       estoque_minimo: Number(form.estoqueMinimo) || 5,
       localizacao: form.localizacao,
@@ -126,6 +129,7 @@ export async function bulkCreateProducts(rows) {
       frete_rateado: Number(r.freteRateado) || 0,
       custo_total: Number(r.custoTotal) || 0,
       preco_sugerido: Number(r.precoSugerido) || 0,
+      disponibilidade: r.disponibilidade || "Pronta entrega",
       quantidade: Number(r.quantidade) || 0,
       estoque_minimo: 5,
     })))
@@ -133,6 +137,17 @@ export async function bulkCreateProducts(rows) {
 
   if (error) throw error;
   return data.map(mapProductRow);
+}
+
+// Catálogo público (view "public_catalog", sem exigir login) — usado pela página /catalogo
+export async function listPublicCatalog() {
+  const { data, error } = await supabase
+    .from("public_catalog")
+    .select("*")
+    .order("name");
+
+  if (error) throw error;
+  return data;
 }
 
 export async function deleteProduct(id) {
