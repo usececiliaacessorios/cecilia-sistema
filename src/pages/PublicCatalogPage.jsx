@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ImagePlus, MessageCircle } from "lucide-react";
+import { ImagePlus, MessageCircle, ShoppingBag, X } from "lucide-react";
 import { listPublicCatalog } from "../services/produtos";
 import { GREEN, GOLD, CREAM, INK, FONT_IMPORT, money } from "../App";
 
@@ -10,6 +10,8 @@ export default function PublicCatalogPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [tab, setTab] = useState("Pronta entrega");
+  const [cart, setCart] = useState([]);
+  const [cartOpen, setCartOpen] = useState(false);
 
   useEffect(() => {
     listPublicCatalog()
@@ -19,6 +21,25 @@ export default function PublicCatalogPage() {
   }, []);
 
   const filtered = items.filter((p) => p.disponibilidade === tab);
+
+  function addToCart(p) {
+    setCart((prev) => {
+      const existing = prev.find((i) => i.id === p.id);
+      if (existing) return prev.map((i) => (i.id === p.id ? { ...i, qty: i.qty + 1 } : i));
+      return [...prev, { id: p.id, code: p.code, name: p.name, preco: p.preco_sugerido, qty: 1 }];
+    });
+  }
+  function removeFromCart(id) {
+    setCart((prev) => prev.filter((i) => i.id !== id));
+  }
+
+  const cartCount = cart.reduce((s, i) => s + i.qty, 0);
+  const cartTotal = cart.reduce((s, i) => s + i.qty * i.preco, 0);
+  const cartMessage = encodeURIComponent(
+    `Olá! Tenho interesse nestas peças:\n` +
+    cart.map((i) => `- ${i.name}${i.code ? ` (${i.code})` : ""} x${i.qty} — ${money(i.preco * i.qty)}`).join("\n") +
+    `\n\nTotal: ${money(cartTotal)}`
+  );
 
   return (
     <div style={{ minHeight: "100vh", background: CREAM, fontFamily: "Manrope" }}>
@@ -66,7 +87,7 @@ export default function PublicCatalogPage() {
         )}
         <div className="cc-catalog-grid">
           {filtered.map((p) => {
-            const msg = encodeURIComponent(`Olá! Tenho interesse na peça ${p.name} (${p.code}) — ${money(p.preco_sugerido)}.`);
+            const msg = encodeURIComponent(`Olá! Tenho interesse na peça ${p.name}${p.code ? ` (${p.code})` : ""} — ${money(p.preco_sugerido)}.`);
             const detalhes = [p.banho, p.cor, p.pedra].filter(Boolean).join(" · ");
             return (
               <div key={p.id} className="cc-card cc-catalog-card">
@@ -82,17 +103,86 @@ export default function PublicCatalogPage() {
                 <p style={{ fontFamily: "Manrope", fontSize: 12, color: "#7A897F", margin: "0 0 10px", lineHeight: 1.5 }}>
                   {[detalhes, p.garantia ? `Garantia ${p.garantia}` : ""].filter(Boolean).join(" · ")}
                 </p>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                   <span style={{ fontFamily: "Cormorant Garamond", fontSize: 22, fontWeight: 700, color: GREEN }}>{money(p.preco_sugerido)}</span>
-                  <a href={`https://wa.me/?text=${msg}`} target="_blank" rel="noopener noreferrer" className="cc-btn-gold" style={{ padding: "8px 12px", fontSize: 12 }}>
-                    <MessageCircle size={14} /> Compartilhar
-                  </a>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => addToCart(p)} className="cc-btn-gold" style={{ padding: "8px 10px", fontSize: 12 }} title="Adicionar à sacola">
+                      <ShoppingBag size={14} />
+                    </button>
+                    <a href={`https://wa.me/?text=${msg}`} target="_blank" rel="noopener noreferrer" className="cc-btn-gold" style={{ padding: "8px 12px", fontSize: 12 }}>
+                      <MessageCircle size={14} /> Compartilhar
+                    </a>
+                  </div>
                 </div>
               </div>
             );
           })}
         </div>
       </main>
+
+      {cart.length > 0 && (
+        <button onClick={() => setCartOpen(true)} style={{
+          position: "fixed", right: 20, bottom: 20, zIndex: 60,
+          width: 56, height: 56, borderRadius: "50%", background: GREEN, color: "#fff",
+          border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "0 10px 26px rgba(0,0,0,0.28)",
+        }}>
+          <ShoppingBag size={22} />
+          <span style={{
+            position: "absolute", top: -4, right: -4, background: GOLD, color: "#fff", borderRadius: "50%",
+            width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 11, fontWeight: 800, fontFamily: "Manrope",
+          }}>{cartCount}</span>
+        </button>
+      )}
+
+      {cartOpen && (
+        <div
+          style={{
+            position: "fixed", inset: 0, background: "rgba(22,63,50,0.35)", backdropFilter: "blur(2px)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16,
+          }}
+          onClick={() => setCartOpen(false)}
+        >
+          <div onClick={(e) => e.stopPropagation()} className="cc-card" style={{ width: "100%", maxWidth: 420, maxHeight: "85vh", overflowY: "auto", padding: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 22px", borderBottom: "1px solid #EFEBE0" }}>
+              <h3 style={{ fontFamily: "Cormorant Garamond", fontSize: 22, fontWeight: 600, margin: 0, color: INK }}>Sua sacola</h3>
+              <button onClick={() => setCartOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#7A897F" }}><X size={20} /></button>
+            </div>
+            <div style={{ padding: 22 }}>
+              {cart.length === 0 ? (
+                <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A968F" }}>Sua sacola está vazia.</p>
+              ) : (
+                <>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+                    {cart.map((i) => (
+                      <div key={i.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: CREAM, borderRadius: 10, padding: "10px 12px" }}>
+                        <div>
+                          <p style={{ margin: 0, fontFamily: "Manrope", fontSize: 13, fontWeight: 600, color: INK }}>{i.name}</p>
+                          <p style={{ margin: 0, fontFamily: "Manrope", fontSize: 12, color: "#8A968F" }}>{i.qty}x {money(i.preco)}</p>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{ fontFamily: "Manrope", fontSize: 13, fontWeight: 700, color: INK }}>{money(i.qty * i.preco)}</span>
+                          <button onClick={() => removeFromCart(i.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#B5533D" }} title="Remover">
+                            <X size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderTop: "1px solid #EFEBE0", marginBottom: 16 }}>
+                    <span style={{ fontFamily: "Manrope", fontSize: 13.5, fontWeight: 700, color: INK }}>Total</span>
+                    <span style={{ fontFamily: "Cormorant Garamond", fontSize: 24, fontWeight: 700, color: GREEN }}>{money(cartTotal)}</span>
+                  </div>
+                  <a href={`https://wa.me/?text=${cartMessage}`} target="_blank" rel="noopener noreferrer" className="cc-btn-gold" style={{ width: "100%", justifyContent: "center" }}>
+                    <MessageCircle size={16} /> Enviar pelo WhatsApp
+                  </a>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

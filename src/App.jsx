@@ -16,8 +16,8 @@ import { login, getCurrentUser, getCurrentProfile, updateCurrentProfile, onAuthC
 import { listProducts, listCategories, createProduct, updateProduct, deleteProduct, bulkDeleteProducts, uploadProductPhoto, bulkCreateProducts } from "./services/produtos";
 import { listSuppliers, createSupplier, updateSupplier, deleteSupplier } from "./services/fornecedores";
 import { listClients, createClient, updateClient, deleteClient } from "./services/clientes";
-import { listOrders, createOrder, updateOrder, updateOrderStatus } from "./services/pedidos";
-import { listCashflow } from "./services/caixa";
+import { listOrders, createOrder, updateOrder, updateOrderStatus, deleteOrder } from "./services/pedidos";
+import { listCashflow, createCashflowEntry } from "./services/caixa";
 
 /* ============================================================
    CECÍLIA — Sistema de Gestão
@@ -772,6 +772,7 @@ function emptyProduct(categories) {
 function ProdutosView({ products, setProducts, suppliers, categories, loading, loadError }) {
   const [modal, setModal] = useState(null); // {mode:'new'|'edit', data}
   const [filterCat, setFilterCat] = useState("Todas");
+  const [filterDisponibilidade, setFilterDisponibilidade] = useState("Todas");
   const [saving, setSaving] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importMsg, setImportMsg] = useState("");
@@ -779,7 +780,7 @@ function ProdutosView({ products, setProducts, suppliers, categories, loading, l
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
-  useEffect(() => { setSelected(new Set()); }, [filterCat]);
+  useEffect(() => { setSelected(new Set()); }, [filterCat, filterDisponibilidade]);
 
   function openNew() { setModal({ mode: "new", data: emptyProduct(categories) }); }
   function openEdit(p) { setModal({ mode: "edit", data: { ...p } }); }
@@ -830,7 +831,9 @@ function ProdutosView({ products, setProducts, suppliers, categories, loading, l
   }
 
   const categoryNames = categories.map((c) => c.nome);
-  const filtered = filterCat === "Todas" ? products : products.filter((p) => p.category === filterCat);
+  const filtered = products
+    .filter((p) => filterCat === "Todas" || p.category === filterCat)
+    .filter((p) => filterDisponibilidade === "Todas" || p.disponibilidade === filterDisponibilidade);
 
   function toggleOne(id) {
     setSelected((prev) => {
@@ -894,13 +897,22 @@ function ProdutosView({ products, setProducts, suppliers, categories, loading, l
         </p>
       )}
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
         {["Todas", ...categoryNames].map((c) => (
           <button key={c} onClick={() => setFilterCat(c)} style={{
             fontFamily: "Manrope", fontSize: 12.5, fontWeight: 600, padding: "7px 14px", borderRadius: 20,
             border: `1px solid ${filterCat === c ? GREEN : "#E2E0D6"}`,
             background: filterCat === c ? GREEN : "#fff", color: filterCat === c ? "#fff" : "#5B6B63", cursor: "pointer",
           }}>{c}</button>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        {["Todas", "Pronta entrega", "Sob encomenda"].map((d) => (
+          <button key={d} onClick={() => setFilterDisponibilidade(d)} style={{
+            fontFamily: "Manrope", fontSize: 12.5, fontWeight: 600, padding: "7px 14px", borderRadius: 20,
+            border: `1px solid ${filterDisponibilidade === d ? GOLD : "#E2E0D6"}`,
+            background: filterDisponibilidade === d ? GOLD : "#fff", color: filterDisponibilidade === d ? "#fff" : "#5B6B63", cursor: "pointer",
+          }}>{d}</button>
         ))}
       </div>
 
@@ -1384,8 +1396,10 @@ function ComprasView({ purchases, suppliers, products, onRegister }) {
 /* ---------------- Estoque ---------------- */
 
 function EstoqueView({ products, loading, loadError }) {
+  const [filterDisponibilidade, setFilterDisponibilidade] = useState("Todas");
   const statuses = ["Disponível", "Reservado", "Encomendado", "Vendido", "Devolvido"];
   const lowStock = products.filter((p) => p.quantidade <= p.estoqueMinimo);
+  const filtered = products.filter((p) => filterDisponibilidade === "Todas" || p.disponibilidade === filterDisponibilidade);
   return (
     <div>
       <SectionTitle title="Estoque" subtitle="Controle de disponibilidade e localização física das peças" />
@@ -1408,13 +1422,23 @@ function EstoqueView({ products, loading, loadError }) {
         </div>
       )}
 
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        {["Todas", "Pronta entrega", "Sob encomenda"].map((d) => (
+          <button key={d} onClick={() => setFilterDisponibilidade(d)} style={{
+            fontFamily: "Manrope", fontSize: 12.5, fontWeight: 600, padding: "7px 14px", borderRadius: 20,
+            border: `1px solid ${filterDisponibilidade === d ? GOLD : "#E2E0D6"}`,
+            background: filterDisponibilidade === d ? GOLD : "#fff", color: filterDisponibilidade === d ? "#fff" : "#5B6B63", cursor: "pointer",
+          }}>{d}</button>
+        ))}
+      </div>
+
       <div className="cc-card" style={{ padding: 0 }}>
         {loading ? (
           <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A968F", padding: 20 }}>Carregando estoque...</p>
         ) : (
           <Table
             columns={["Código", "Produto", "Localização", "Qtd.", "Mínimo", "Status"]}
-            rows={products}
+            rows={filtered}
             renderRow={(p) => {
               const status = p.quantidade === 0 ? "Vendido" : p.quantidade <= p.estoqueMinimo ? "Reservado" : "Disponível";
               return (
@@ -1470,6 +1494,20 @@ function PedidosView({ orders, setOrders, clients, products, onStatusChange, loa
     }
   }
 
+  async function remove(o) {
+    if (o.baixado) {
+      alert(`O pedido ${o.numero} já teve o estoque baixado, o cliente creditado e o caixa lançado. Para excluir, primeiro mude o status para "Cancelado" no seletor (isso estorna tudo automaticamente) e só depois exclua.`);
+      return;
+    }
+    if (!window.confirm(`Tem certeza que deseja excluir o pedido ${o.numero}? Essa ação não pode ser desfeita.`)) return;
+    try {
+      await deleteOrder(o.id);
+      setOrders((prev) => prev.filter((x) => x.id !== o.id));
+    } catch (err) {
+      alert("Erro ao excluir pedido: " + err.message);
+    }
+  }
+
   return (
     <div>
       <SectionTitle title="Pedidos" subtitle={`${orders.length} pedidos registrados — status "Pago" baixa estoque, credita o caixa e atualiza o cliente`} action={<GoldButton icon={Plus} onClick={openNew} disabled={loading || clients.length === 0}>Novo pedido</GoldButton>} />
@@ -1499,7 +1537,10 @@ function PedidosView({ orders, setOrders, clients, products, onStatusChange, loa
                   {o.baixado && <div style={{ marginTop: 4 }}><Badge tone="green">estoque baixado</Badge></div>}
                 </td>
                 <td style={td}>
-                  <button onClick={() => openEdit(o)} className="cc-icon-btn"><Pencil size={14} /></button>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => openEdit(o)} className="cc-icon-btn"><Pencil size={14} /></button>
+                    <button onClick={() => remove(o)} className="cc-icon-btn"><Trash2 size={14} /></button>
+                  </div>
                 </td>
               </tr>
             )}
@@ -1648,11 +1689,27 @@ function PrecificacaoView() {
 
 /* ---------------- Fluxo de Caixa ---------------- */
 
-function CaixaView({ cashflow, loading, loadError }) {
+function CaixaView({ cashflow, setCashflow, loading, loadError }) {
   const [period, setPeriod] = useState("Mês");
+  const [modalOpen, setModalOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const entradas = cashflow.filter((c) => c.tipo === "Entrada").reduce((s, c) => s + c.valor, 0);
   const saidas = cashflow.filter((c) => c.tipo === "Saída").reduce((s, c) => s + c.valor, 0);
   const saldo = entradas + saidas;
+
+  async function handleSave(form) {
+    setSaving(true);
+    try {
+      await createCashflowEntry(form);
+      const fresh = await listCashflow();
+      setCashflow(fresh);
+      setModalOpen(false);
+    } catch (err) {
+      alert("Erro ao salvar lançamento: " + err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div>
@@ -1660,14 +1717,17 @@ function CaixaView({ cashflow, loading, loadError }) {
         title="Fluxo de caixa"
         subtitle="Entradas, saídas e saldo"
         action={
-          <div style={{ display: "flex", gap: 6 }}>
-            {["Dia", "Semana", "Mês", "Ano"].map((p) => (
-              <button key={p} onClick={() => setPeriod(p)} style={{
-                fontFamily: "Manrope", fontSize: 12, fontWeight: 600, padding: "7px 12px", borderRadius: 18,
-                border: `1px solid ${period === p ? GREEN : "#E2E0D6"}`, background: period === p ? GREEN : "#fff",
-                color: period === p ? "#fff" : "#5B6B63", cursor: "pointer",
-              }}>{p}</button>
-            ))}
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 6 }}>
+              {["Dia", "Semana", "Mês", "Ano"].map((p) => (
+                <button key={p} onClick={() => setPeriod(p)} style={{
+                  fontFamily: "Manrope", fontSize: 12, fontWeight: 600, padding: "7px 12px", borderRadius: 18,
+                  border: `1px solid ${period === p ? GREEN : "#E2E0D6"}`, background: period === p ? GREEN : "#fff",
+                  color: period === p ? "#fff" : "#5B6B63", cursor: "pointer",
+                }}>{p}</button>
+              ))}
+            </div>
+            <GoldButton icon={Plus} onClick={() => setModalOpen(true)}>Novo lançamento</GoldButton>
           </div>
         }
       />
@@ -1701,13 +1761,43 @@ function CaixaView({ cashflow, loading, loadError }) {
           />
         )}
       </div>
+
+      {modalOpen && (
+        <Modal title="Novo lançamento" onClose={() => setModalOpen(false)}>
+          <CashflowForm onSave={handleSave} saving={saving} onCancel={() => setModalOpen(false)} />
+        </Modal>
+      )}
     </div>
+  );
+}
+
+function CashflowForm({ onSave, saving, onCancel }) {
+  const [form, setForm] = useState({ tipo: "Saída", desc: "", valor: "", data: new Date().toISOString().slice(0, 10) });
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); onSave(form); }}>
+      <div className="cc-form-grid">
+        <Field label="Tipo">
+          <Select value={form.tipo} onChange={set("tipo")}>
+            <option>Entrada</option>
+            <option>Saída</option>
+          </Select>
+        </Field>
+        <Field label="Data"><TextInput type="date" value={form.data} onChange={set("data")} required /></Field>
+        <Field label="Valor (R$)"><TextInput type="number" step="0.01" min="0" value={form.valor} onChange={set("valor")} required /></Field>
+        <Field label="Descrição" span={3}><TextInput value={form.desc} onChange={set("desc")} required placeholder="ex: Aluguel, embalagens, taxa..." /></Field>
+      </div>
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
+        <GhostButton onClick={onCancel} disabled={saving}>Cancelar</GhostButton>
+        <GoldButton type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar lançamento"}</GoldButton>
+      </div>
+    </form>
   );
 }
 
 /* ---------------- Relatórios ---------------- */
 
-function RelatoriosView({ products, clients, orders, loading }) {
+function RelatoriosView({ products, clients, orders, cashflow, loading }) {
   // Quantidade vendida por produto, somando os itens de pedidos que não foram cancelados
   const vendidoPorProduto = {};
   orders.filter((o) => o.status !== "Cancelado").forEach((o) => {
@@ -1738,6 +1828,14 @@ function RelatoriosView({ products, clients, orders, loading }) {
     .filter((p) => !vendidoPorProduto[p.id])
     .map((p) => ({ label: p.name, value: `${p.quantidade} un. em estoque` }));
 
+  const entradas = cashflow.filter((c) => c.tipo === "Entrada").reduce((s, c) => s + c.valor, 0);
+  const saidas = cashflow.filter((c) => c.tipo === "Saída").reduce((s, c) => s + c.valor, 0);
+  const resumoCaixa = [
+    { label: "Entradas", value: money(entradas) },
+    { label: "Saídas", value: money(Math.abs(saidas)) },
+    { label: "Saldo", value: money(entradas + saidas) },
+  ];
+
   const reports = [
     { title: "Produtos mais vendidos", data: maisVendidos },
     { title: "Lucro por categoria", data: lucroPorCategoria },
@@ -1745,6 +1843,7 @@ function RelatoriosView({ products, clients, orders, loading }) {
     { title: "Produtos com estoque baixo", data: products.filter((p) => p.quantidade <= p.estoqueMinimo).map((p) => ({ label: p.name, value: `${p.quantidade} un.` })) },
     { title: "Produtos sem movimentação", data: produtosParados },
     { title: "Lucro por produto", data: products.map((p) => ({ label: p.name, value: money(p.lucro) })) },
+    { title: "Fluxo de caixa", data: resumoCaixa },
   ];
   return (
     <div>
@@ -2090,8 +2189,8 @@ export default function App() {
           {active === "estoque" && <EstoqueView products={products} loading={productsLoading} loadError={productsError} />}
           {active === "pedidos" && <PedidosView orders={orders} setOrders={setOrders} clients={clients} products={products} onStatusChange={handleOrderStatusChange} loading={productsLoading} loadError={productsError} />}
           {active === "precificacao" && <PrecificacaoView />}
-          {active === "caixa" && <CaixaView cashflow={cashflow} loading={productsLoading} loadError={productsError} />}
-          {active === "relatorios" && <RelatoriosView products={products} clients={clients} orders={orders} loading={productsLoading} />}
+          {active === "caixa" && <CaixaView cashflow={cashflow} setCashflow={setCashflow} loading={productsLoading} loadError={productsError} />}
+          {active === "relatorios" && <RelatoriosView products={products} clients={clients} orders={orders} cashflow={cashflow} loading={productsLoading} />}
           {active === "catalogo" && <CatalogoView products={products} />}
           {active === "config" && <ConfiguracoesView />}
         </main>

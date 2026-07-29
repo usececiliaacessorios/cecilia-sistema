@@ -121,3 +121,12 @@ export async function updateOrderStatus(orderId, status) {
   const { error } = await supabase.from("orders").update({ status }).eq("id", orderId);
   if (error) throw error;
 }
+
+// Exclui o pedido — order_items é apagado junto (on delete cascade).
+// Chame só para pedidos que ainda não foram baixados; um pedido já baixado
+// deve ser cancelado primeiro (o status "Cancelado" já estorna estoque,
+// cliente e caixa via trigger) e só depois excluído.
+export async function deleteOrder(id) {
+  const { error } = await supabase.from("orders").delete().eq("id", id);
+  if (error) throw error;
+}
