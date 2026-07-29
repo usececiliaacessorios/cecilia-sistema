@@ -25,7 +25,7 @@ import { listCashflow, createCashflowEntry } from "./services/caixa";
    ============================================================ */
 
 export const GREEN = "#0F3D2E";
-const GREEN_DARK = "#0A2A20";
+export const GREEN_DARK = "#0A2A20";
 export const GOLD = "#C8A45A";
 const GOLD_SOFT = "#E4D2A8";
 export const CREAM = "#FAF7F1";
@@ -216,7 +216,7 @@ const thStyle = {
 
 // Wordmark reutilizável: texto serifado dourado + estrelinha decorativa.
 // variant="large" acrescenta a linha com losango e a tagline em itálico.
-function CeciliaLogo({ variant = "large" }) {
+export function CeciliaLogo({ variant = "large" }) {
   const compact = variant === "compact";
   return (
     <div>

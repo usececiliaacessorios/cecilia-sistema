@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ImagePlus, MessageCircle, ShoppingBag, X } from "lucide-react";
 import { listPublicCatalog } from "../services/produtos";
-import { GREEN, GOLD, CREAM, INK, FONT_IMPORT, money } from "../App";
+import { GREEN, GREEN_DARK, GOLD, CREAM, INK, FONT_IMPORT, money, CeciliaLogo } from "../App";
 
 const TABS = ["Pronta entrega", "Sob encomenda"];
 const WHATSAPP_NUMBER = "5566999428631";
@@ -121,15 +121,9 @@ export default function PublicCatalogPage() {
         .cc-filter-row::-webkit-scrollbar-thumb { background: #E2E0D6; border-radius: 4px; }
       `}</style>
 
-      <header style={{ padding: "34px 24px 18px", textAlign: "center" }}>
-        <div style={{
-          width: 52, height: 52, margin: "0 auto 10px", borderRadius: "50%",
-          border: `1.5px solid ${GOLD}`, display: "flex", alignItems: "center", justifyContent: "center",
-        }}>
-          <span style={{ fontFamily: "Cormorant Garamond", fontSize: 24, color: GREEN, fontStyle: "italic" }}>C</span>
-        </div>
-        <h1 style={{ fontFamily: "Cormorant Garamond", fontSize: 34, color: GREEN, margin: 0, letterSpacing: ".02em" }}>Cecília</h1>
-        <p style={{ fontFamily: "Cormorant Garamond", fontStyle: "italic", fontSize: 16, color: GOLD, margin: "4px 0 0" }}>Catálogo de peças</p>
+      <header style={{ padding: "42px 24px 34px", textAlign: "center", background: GREEN_DARK }}>
+        <CeciliaLogo variant="large" />
+        <p style={{ fontFamily: "Manrope", color: "#8FB3A5", fontSize: 11.5, margin: "12px 0 0", letterSpacing: ".08em" }}>CATÁLOGO DE PEÇAS</p>
       </header>
 
       <div style={{ display: "flex", justifyContent: "center", padding: "0 16px", marginBottom: 22 }}>
