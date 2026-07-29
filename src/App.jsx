@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import * as XLSX from "xlsx";
 import { login, getCurrentUser, getCurrentProfile, updateCurrentProfile, onAuthChange, requestPasswordReset } from "./services/auth";
-import { listProducts, listCategories, createProduct, updateProduct, deleteProduct, uploadProductPhoto, bulkCreateProducts } from "./services/produtos";
+import { listProducts, listCategories, createProduct, updateProduct, deleteProduct, bulkDeleteProducts, uploadProductPhoto, bulkCreateProducts } from "./services/produtos";
 import { listSuppliers, createSupplier, updateSupplier, deleteSupplier } from "./services/fornecedores";
 
 /* ============================================================
@@ -225,6 +225,10 @@ function Table({ columns, rows, renderRow }) {
   );
 }
 const td = { padding: "13px 14px", fontFamily: "Manrope", fontSize: 13.5, color: INK, borderBottom: "1px solid #F4F1E9" };
+const thStyle = {
+  textAlign: "left", fontFamily: "Manrope", fontSize: 11.5, fontWeight: 700, color: "#8A968F",
+  textTransform: "uppercase", letterSpacing: ".04em", padding: "10px 14px", borderBottom: "1px solid #EFEBE0",
+};
 
 /* ---------------- Login ---------------- */
 
@@ -789,6 +793,11 @@ function ProdutosView({ products, setProducts, suppliers, categories, loading, l
   const [saving, setSaving] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importMsg, setImportMsg] = useState("");
+  const [selected, setSelected] = useState(() => new Set());
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  useEffect(() => { setSelected(new Set()); }, [filterCat]);
 
   function openNew() { setModal({ mode: "new", data: emptyProduct(categories) }); }
   function openEdit(p) { setModal({ mode: "edit", data: { ...p } }); }
@@ -821,6 +830,12 @@ function ProdutosView({ products, setProducts, suppliers, categories, loading, l
     try {
       await deleteProduct(id);
       setProducts((prev) => prev.filter((p) => p.id !== id));
+      setSelected((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     } catch (err) {
       alert("Erro ao remover produto: " + err.message);
     }
@@ -834,6 +849,43 @@ function ProdutosView({ products, setProducts, suppliers, categories, loading, l
 
   const categoryNames = categories.map((c) => c.nome);
   const filtered = filterCat === "Todas" ? products : products.filter((p) => p.category === filterCat);
+
+  function toggleOne(id) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  const allFilteredSelected = filtered.length > 0 && filtered.every((p) => selected.has(p.id));
+
+  function toggleAll() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) {
+        filtered.forEach((p) => next.delete(p.id));
+      } else {
+        filtered.forEach((p) => next.add(p.id));
+      }
+      return next;
+    });
+  }
+
+  async function removeSelected() {
+    setBulkDeleting(true);
+    try {
+      await bulkDeleteProducts(Array.from(selected));
+      const fresh = await listProducts();
+      setProducts(fresh);
+      setSelected(new Set());
+      setConfirmOpen(false);
+    } catch (err) {
+      alert("Erro ao excluir produtos selecionados: " + err.message);
+    } finally {
+      setBulkDeleting(false);
+    }
+  }
 
   return (
     <div>
@@ -874,43 +926,56 @@ function ProdutosView({ products, setProducts, suppliers, categories, loading, l
         {loading ? (
           <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A968F", padding: 20 }}>Carregando produtos...</p>
         ) : (
-          <Table
-            columns={["Código", "Produto", "Categoria", "Estoque", "Custo", "Preço", "Lucro", ""]}
-            rows={filtered}
-            renderRow={(p) => (
-              <tr key={p.id}>
-                <td style={td}><span style={{ fontWeight: 700, color: GREEN }}>{p.code}</span></td>
-                <td style={td}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    {p.photo ? (
-                      <img src={p.photo} alt={p.name} style={{ width: 34, height: 34, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
-                    ) : (
-                      <div style={{ width: 34, height: 34, borderRadius: 8, background: CREAM, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                        <ImagePlus size={14} color="#B8AF9C" />
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 680 }}>
+              <thead>
+                <tr>
+                  <th style={{ ...thStyle, width: 40 }}>
+                    <input type="checkbox" checked={allFilteredSelected} onChange={toggleAll} disabled={filtered.length === 0} />
+                  </th>
+                  {["Código", "Produto", "Categoria", "Estoque", "Custo", "Preço", "Lucro", ""].map((c) => (
+                    <th key={c} style={thStyle}>{c}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((p) => (
+                  <tr key={p.id} style={{ background: selected.has(p.id) ? `${GOLD}0F` : "transparent" }}>
+                    <td style={td}><input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleOne(p.id)} /></td>
+                    <td style={td}><span style={{ fontWeight: 700, color: GREEN }}>{p.code}</span></td>
+                    <td style={td}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        {p.photo ? (
+                          <img src={p.photo} alt={p.name} style={{ width: 34, height: 34, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
+                        ) : (
+                          <div style={{ width: 34, height: 34, borderRadius: 8, background: CREAM, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                            <ImagePlus size={14} color="#B8AF9C" />
+                          </div>
+                        )}
+                        <div>
+                          <p style={{ margin: 0, fontWeight: 600 }}>{p.name}</p>
+                          <p style={{ margin: 0, fontSize: 11.5, color: "#8A968F" }}>{p.collection}</p>
+                        </div>
                       </div>
-                    )}
-                    <div>
-                      <p style={{ margin: 0, fontWeight: 600 }}>{p.name}</p>
-                      <p style={{ margin: 0, fontSize: 11.5, color: "#8A968F" }}>{p.collection}</p>
-                    </div>
-                  </div>
-                </td>
-                <td style={td}>{p.category}</td>
-                <td style={td}>
-                  <Badge tone={p.quantidade <= p.estoqueMinimo ? "red" : "green"}>{p.quantidade} un.</Badge>
-                </td>
-                <td style={td}>{money(p.custoTotal)}</td>
-                <td style={td}>{money(p.precoSugerido)}{p.promocao && <Badge tone="gold"> Promo</Badge>}</td>
-                <td style={td}><span style={{ color: GREEN, fontWeight: 700 }}>{money(p.lucro)}</span></td>
-                <td style={td}>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => openEdit(p)} className="cc-icon-btn"><Pencil size={14} /></button>
-                    <button onClick={() => remove(p.id)} className="cc-icon-btn"><Trash2 size={14} /></button>
-                  </div>
-                </td>
-              </tr>
-            )}
-          />
+                    </td>
+                    <td style={td}>{p.category}</td>
+                    <td style={td}>
+                      <Badge tone={p.quantidade <= p.estoqueMinimo ? "red" : "green"}>{p.quantidade} un.</Badge>
+                    </td>
+                    <td style={td}>{money(p.custoTotal)}</td>
+                    <td style={td}>{money(p.precoSugerido)}{p.promocao && <Badge tone="gold"> Promo</Badge>}</td>
+                    <td style={td}><span style={{ color: GREEN, fontWeight: 700 }}>{money(p.lucro)}</span></td>
+                    <td style={td}>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={() => openEdit(p)} className="cc-icon-btn"><Pencil size={14} /></button>
+                        <button onClick={() => remove(p.id)} className="cc-icon-btn"><Trash2 size={14} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
@@ -922,6 +987,36 @@ function ProdutosView({ products, setProducts, suppliers, categories, loading, l
 
       {importOpen && (
         <ImportModal categories={categories} onClose={() => setImportOpen(false)} onImported={handleImported} />
+      )}
+
+      {selected.size > 0 && (
+        <div style={{
+          position: "fixed", left: "50%", bottom: 24, transform: "translateX(-50%)", zIndex: 60,
+          background: GREEN_DARK, color: "#fff", borderRadius: 14, padding: "12px 14px 12px 20px",
+          display: "flex", alignItems: "center", gap: 14, boxShadow: "0 12px 32px rgba(0,0,0,0.28)",
+        }}>
+          <span style={{ fontFamily: "Manrope", fontSize: 13.5, fontWeight: 600 }}>
+            {selected.size} produto{selected.size === 1 ? "" : "s"} selecionado{selected.size === 1 ? "" : "s"}
+          </span>
+          <button onClick={() => setConfirmOpen(true)} className="cc-btn-gold" style={{ padding: "9px 16px", fontSize: 13 }}>
+            <Trash2 size={14} /> Excluir selecionados
+          </button>
+          <button onClick={() => setSelected(new Set())} style={{ background: "none", border: "none", color: "#CBDED4", cursor: "pointer", fontFamily: "Manrope", fontSize: 12.5 }}>
+            Cancelar
+          </button>
+        </div>
+      )}
+
+      {confirmOpen && (
+        <Modal title="Excluir produtos selecionados" onClose={() => !bulkDeleting && setConfirmOpen(false)}>
+          <p style={{ fontFamily: "Manrope", fontSize: 13.5, color: INK, lineHeight: 1.6, margin: 0 }}>
+            Tem certeza que deseja excluir <strong>{selected.size}</strong> produto{selected.size === 1 ? "" : "s"}? Essa ação não pode ser desfeita.
+          </p>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
+            <GhostButton onClick={() => setConfirmOpen(false)} disabled={bulkDeleting}>Cancelar</GhostButton>
+            <GoldButton onClick={removeSelected} disabled={bulkDeleting}>{bulkDeleting ? "Excluindo..." : "Excluir selecionados"}</GoldButton>
+          </div>
+        </Modal>
       )}
     </div>
   );

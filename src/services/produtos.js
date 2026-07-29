@@ -155,6 +155,11 @@ export async function deleteProduct(id) {
   if (error) throw error;
 }
 
+export async function bulkDeleteProducts(ids) {
+  const { error } = await supabase.from("products").delete().in("id", ids);
+  if (error) throw error;
+}
+
 // Upload de foto: salva no bucket "produtos-fotos" e devolve a URL pública
 export async function uploadProductPhoto(productId, file) {
   const path = `${productId}/${Date.now()}-${file.name}`;
