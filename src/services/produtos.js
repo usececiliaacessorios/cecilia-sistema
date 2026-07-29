@@ -124,7 +124,7 @@ export async function bulkCreateProducts(rows) {
     .insert(rows.map((r) => ({
       name: r.name,
       category_id: r.categoryId,
-      garantia: "12 meses",
+      garantia: "05 meses",
       valor_pago: Number(r.valorPago) || 0,
       frete_rateado: Number(r.freteRateado) || 0,
       custo_total: Number(r.custoTotal) || 0,

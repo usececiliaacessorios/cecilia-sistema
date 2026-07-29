@@ -776,7 +776,7 @@ function ImportModal({ categories, onClose, onImported }) {
 function emptyProduct(categories) {
   return {
     categoryId: categories?.[0]?.id || "", collection: "", name: "", photo: "",
-    banho: "", cor: "", pedra: "", garantia: "12 meses", peso: "",
+    banho: "", cor: "", pedra: "", garantia: "05 meses", peso: "",
     fornecedorId: "", dataCompra: "", valorPago: "", freteRateado: "",
     precoSugerido: "", margem: 100, promocao: false, disponibilidade: "Pronta entrega",
     quantidade: "", estoqueMinimo: "", localizacao: "",
