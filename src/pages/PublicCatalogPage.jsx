@@ -59,6 +59,8 @@ export default function PublicCatalogPage() {
   const [banhoFilter, setBanhoFilter] = useState("Todos");
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
+  const [personalizeFor, setPersonalizeFor] = useState(null);
+  const [personalizeText, setPersonalizeText] = useState("");
 
   useEffect(() => {
     listPublicCatalog()
@@ -77,15 +79,29 @@ export default function PublicCatalogPage() {
     (banhoFilter === "Todos" || p.banho === banhoFilter)
   );
 
-  function addToCart(p) {
+  function addToCart(p, personalizacao = "") {
+    const key = personalizacao ? `${p.id}::${personalizacao}` : p.id;
     setCart((prev) => {
-      const existing = prev.find((i) => i.id === p.id);
-      if (existing) return prev.map((i) => (i.id === p.id ? { ...i, qty: i.qty + 1 } : i));
-      return [...prev, { id: p.id, code: p.code, name: p.name, preco: p.preco_sugerido, qty: 1 }];
+      const existing = prev.find((i) => i.key === key);
+      if (existing) return prev.map((i) => (i.key === key ? { ...i, qty: i.qty + 1 } : i));
+      return [...prev, { key, id: p.id, code: p.code, name: p.name, preco: p.preco_sugerido, qty: 1, personalizacao }];
     });
   }
-  function removeFromCart(id) {
-    setCart((prev) => prev.filter((i) => i.id !== id));
+  function handleAddClick(p) {
+    if (p.categoria === "Personalizáveis") {
+      setPersonalizeText("");
+      setPersonalizeFor(p);
+    } else {
+      addToCart(p);
+    }
+  }
+  function confirmPersonalization() {
+    if (!personalizeText.trim()) return;
+    addToCart(personalizeFor, personalizeText.trim());
+    setPersonalizeFor(null);
+  }
+  function removeFromCart(key) {
+    setCart((prev) => prev.filter((i) => i.key !== key));
   }
 
   const cartCount = cart.reduce((s, i) => s + i.qty, 0);
@@ -95,7 +111,7 @@ export default function PublicCatalogPage() {
   const cartTotal = cartSubtotal - discountValue;
   const cartMessage = encodeURIComponent(
     `Olá! Tenho interesse nestas peças:\n` +
-    cart.map((i) => `- ${i.name}${i.code ? ` (${i.code})` : ""} x${i.qty} — ${money(i.preco * i.qty)}`).join("\n") +
+    cart.map((i) => `- ${i.name}${i.code ? ` (${i.code})` : ""}${i.personalizacao ? ` (personalização: ${i.personalizacao})` : ""} x${i.qty} — ${money(i.preco * i.qty)}`).join("\n") +
     (discountRate > 0
       ? `\n\nSubtotal: ${money(cartSubtotal)}\nDesconto (${discountRate * 100}%): -${money(discountValue)}\nTotal: ${money(cartTotal)}`
       : `\n\nTotal: ${money(cartTotal)}`)
@@ -184,7 +200,7 @@ export default function PublicCatalogPage() {
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                   <span style={{ fontFamily: "Cormorant Garamond", fontSize: 22, fontWeight: 700, color: GREEN }}>{money(p.preco_sugerido)}</span>
                   <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => addToCart(p)} className="cc-btn-gold" style={{ padding: "8px 10px", fontSize: 12 }} title="Adicionar à sacola">
+                    <button onClick={() => handleAddClick(p)} className="cc-btn-gold" style={{ padding: "8px 10px", fontSize: 12 }} title="Adicionar à sacola">
                       <ShoppingBag size={14} />
                     </button>
                     <a href={`https://wa.me/${WHATSAPP_NUMBER}?text=${msg}`} target="_blank" rel="noopener noreferrer" className="cc-btn-gold" style={{ padding: "8px 12px", fontSize: 12 }}>
@@ -234,14 +250,16 @@ export default function PublicCatalogPage() {
                 <>
                   <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
                     {cart.map((i) => (
-                      <div key={i.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: CREAM, borderRadius: 10, padding: "10px 12px" }}>
+                      <div key={i.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: CREAM, borderRadius: 10, padding: "10px 12px" }}>
                         <div>
-                          <p style={{ margin: 0, fontFamily: "Manrope", fontSize: 13, fontWeight: 600, color: INK }}>{i.name}</p>
+                          <p style={{ margin: 0, fontFamily: "Manrope", fontSize: 13, fontWeight: 600, color: INK }}>
+                            {i.name}{i.personalizacao && <span style={{ fontWeight: 400, fontStyle: "italic", color: "#8A6B2E" }}> — personalização: "{i.personalizacao}"</span>}
+                          </p>
                           <p style={{ margin: 0, fontFamily: "Manrope", fontSize: 12, color: "#8A968F" }}>{i.qty}x {money(i.preco)}</p>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                           <span style={{ fontFamily: "Manrope", fontSize: 13, fontWeight: 700, color: INK }}>{money(i.qty * i.preco)}</span>
-                          <button onClick={() => removeFromCart(i.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#B5533D" }} title="Remover">
+                          <button onClick={() => removeFromCart(i.key)} style={{ background: "none", border: "none", cursor: "pointer", color: "#B5533D" }} title="Remover">
                             <X size={16} />
                           </button>
                         </div>
@@ -270,6 +288,44 @@ export default function PublicCatalogPage() {
                   </a>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {personalizeFor && (
+        <div
+          style={{
+            position: "fixed", inset: 0, background: "rgba(22,63,50,0.35)", backdropFilter: "blur(2px)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110, padding: 16,
+          }}
+          onClick={() => setPersonalizeFor(null)}
+        >
+          <div onClick={(e) => e.stopPropagation()} className="cc-card" style={{ width: "100%", maxWidth: 360, padding: 22 }}>
+            <h3 style={{ fontFamily: "Cormorant Garamond", fontSize: 20, fontWeight: 600, margin: "0 0 4px", color: INK }}>Personalizar peça</h3>
+            <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#7A897F", margin: "0 0 14px" }}>{personalizeFor.name}</p>
+            <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <span style={{ fontFamily: "Manrope", fontSize: 12, fontWeight: 700, color: "#5B6B63" }}>Qual letra ou nome você deseja nessa peça?</span>
+              <input
+                autoFocus
+                value={personalizeText}
+                onChange={(e) => setPersonalizeText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") confirmPersonalization(); }}
+                placeholder="ex: M, Maria..."
+                style={{
+                  fontFamily: "Manrope", fontSize: 13.5, padding: "9px 12px", borderRadius: 10,
+                  border: "1px solid #E2E0D6", outline: "none", width: "100%", boxSizing: "border-box",
+                }}
+              />
+            </label>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18 }}>
+              <button onClick={() => setPersonalizeFor(null)} style={{
+                background: "none", border: "1px solid #E2E0D6", borderRadius: 10, padding: "9px 16px",
+                fontFamily: "Manrope", fontWeight: 600, fontSize: 13, cursor: "pointer", color: INK,
+              }}>Cancelar</button>
+              <button onClick={confirmPersonalization} disabled={!personalizeText.trim()} className="cc-btn-gold" style={{ opacity: personalizeText.trim() ? 1 : 0.6, cursor: personalizeText.trim() ? "pointer" : "not-allowed" }}>
+                Adicionar à sacola
+              </button>
             </div>
           </div>
         </div>

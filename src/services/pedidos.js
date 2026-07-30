@@ -10,6 +10,7 @@ function mapOrderRow(row) {
     name: i.products?.name ?? "",
     qtd: i.qtd,
     preco: i.preco_unit,
+    personalizacao: i.personalizacao ?? "",
   }));
   return {
     id: row.id,
@@ -17,7 +18,7 @@ function mapOrderRow(row) {
     clienteId: row.cliente_id,
     cliente: row.clients?.nome ?? "",
     itens,
-    produtos: itens.map((i) => `${i.name} x${i.qtd}`).join(", "),
+    produtos: itens.map((i) => `${i.name}${i.personalizacao ? ` (personalização: ${i.personalizacao})` : ""} x${i.qtd}`).join(", "),
     desconto: row.desconto ?? 0,
     forma: row.forma_pagamento ?? "",
     parcelas: row.parcelas ?? 1,
@@ -37,7 +38,7 @@ export async function listOrders() {
     .select(`
       *,
       clients ( nome ),
-      order_items ( id, qtd, preco_unit, products ( id, name, code ) )
+      order_items ( id, qtd, preco_unit, personalizacao, products ( id, name, code ) )
     `)
     .order("created_at", { ascending: false });
 
@@ -71,6 +72,7 @@ export async function createOrder(form) {
     produto_id: i.productId,
     qtd: i.qtd,
     preco_unit: i.preco,
+    personalizacao: i.personalizacao || null,
   }));
 
   const { error: itemsError } = await supabase.from("order_items").insert(itens);
@@ -107,6 +109,7 @@ export async function updateOrder(id, form) {
     produto_id: i.productId,
     qtd: i.qtd,
     preco_unit: i.preco,
+    personalizacao: i.personalizacao || null,
   }));
   if (itens.length > 0) {
     const { error: itemsError } = await supabase.from("order_items").insert(itens);

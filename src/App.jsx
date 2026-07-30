@@ -1614,13 +1614,18 @@ function OrderForm({ data, clients, products, onSave, saving, onCancel }) {
   const [form, setForm] = useState(data);
   const [pickProduto, setPickProduto] = useState("");
   const [pickQtd, setPickQtd] = useState(1);
+  const [pickPersonalizacao, setPickPersonalizacao] = useState("");
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
+  const pickedProduct = products.find((pr) => String(pr.id) === String(pickProduto));
+  const pickNeedsPersonalizacao = pickedProduct?.category === "Personalizáveis";
+
   function addItem() {
-    const p = products.find((pr) => String(pr.id) === String(pickProduto));
+    const p = pickedProduct;
     if (!p) return;
-    setForm((f) => ({ ...f, itens: [...(f.itens || []), { productId: p.id, code: p.code, name: p.name, qtd: parseInt(pickQtd) || 1, preco: p.precoSugerido }] }));
-    setPickProduto(""); setPickQtd(1);
+    if (pickNeedsPersonalizacao && !pickPersonalizacao.trim()) return;
+    setForm((f) => ({ ...f, itens: [...(f.itens || []), { productId: p.id, code: p.code, name: p.name, qtd: parseInt(pickQtd) || 1, preco: p.precoSugerido, personalizacao: pickNeedsPersonalizacao ? pickPersonalizacao.trim() : "" }] }));
+    setPickProduto(""); setPickQtd(1); setPickPersonalizacao("");
   }
   function removeItem(idx) { setForm((f) => ({ ...f, itens: f.itens.filter((_, i) => i !== idx) })); }
 
@@ -1645,13 +1650,18 @@ function OrderForm({ data, clients, products, onSave, saving, onCancel }) {
           {products.map((p) => <option key={p.id} value={p.id}>{p.code} — {p.name} ({money(p.precoSugerido)})</option>)}
         </Select>
         <TextInput type="number" min={1} value={pickQtd} onChange={(e) => setPickQtd(e.target.value)} style={{ width: 70 }} />
-        <GhostButton icon={Plus} onClick={addItem}>Adicionar</GhostButton>
+        {pickNeedsPersonalizacao && (
+          <TextInput value={pickPersonalizacao} onChange={(e) => setPickPersonalizacao(e.target.value)} placeholder="Letra ou nome para personalizar" style={{ flex: 1, minWidth: 160 }} />
+        )}
+        <GhostButton icon={Plus} onClick={addItem} disabled={pickNeedsPersonalizacao && !pickPersonalizacao.trim()}>Adicionar</GhostButton>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 6 }}>
         {(form.itens || []).length === 0 && <p style={{ fontFamily: "Manrope", fontSize: 12.5, color: "#96A39D" }}>Nenhum produto adicionado ainda.</p>}
         {(form.itens || []).map((i, idx) => (
           <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: CREAM, borderRadius: 10, padding: "8px 12px" }}>
-            <span style={{ fontFamily: "Manrope", fontSize: 13 }}>{i.name} <span style={{ color: "#8A968F" }}>x{i.qtd}</span></span>
+            <span style={{ fontFamily: "Manrope", fontSize: 13 }}>
+              {i.name}{i.personalizacao && <span style={{ fontStyle: "italic", color: "#8A6B2E" }}> — personalização: "{i.personalizacao}"</span>} <span style={{ color: "#8A968F" }}>x{i.qtd}</span>
+            </span>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ fontFamily: "Manrope", fontSize: 13, fontWeight: 700 }}>{money(i.qtd * i.preco)}</span>
               <button type="button" onClick={() => removeItem(idx)} className="cc-icon-btn"><X size={13} /></button>
