@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { ImagePlus, MessageCircle, ShoppingBag, X } from "lucide-react";
-import { listPublicCatalog } from "../services/produtos";
+import { ImagePlus, MessageCircle, ShoppingBag, X, Sparkles } from "lucide-react";
+import { listPublicCatalog, getPublicCollectionHighlight } from "../services/produtos";
 import { GREEN, GREEN_DARK, GOLD, CREAM, INK, FONT_IMPORT, money, CeciliaLogo } from "../App";
 
 const TABS = ["Pronta entrega", "Sob encomenda"];
@@ -57,6 +57,8 @@ export default function PublicCatalogPage() {
   const [tab, setTab] = useState("Pronta entrega");
   const [categoryFilter, setCategoryFilter] = useState("Todas");
   const [banhoFilter, setBanhoFilter] = useState("Todos");
+  const [collectionFilter, setCollectionFilter] = useState("");
+  const [colecaoDestaque, setColecaoDestaque] = useState("");
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [personalizeFor, setPersonalizeFor] = useState(null);
@@ -67,17 +69,27 @@ export default function PublicCatalogPage() {
       .then(setItems)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
+    getPublicCollectionHighlight().then(setColecaoDestaque).catch(() => {});
   }, []);
 
   // Opções geradas a partir dos produtos carregados — cada lojista pode ter categorias/banhos diferentes.
   const categoryOptions = [...new Set(items.map((p) => p.categoria).filter(Boolean))].sort();
   const banhoOptions = [...new Set(items.map((p) => p.banho).filter(Boolean))].sort();
 
-  const filtered = items.filter((p) =>
-    p.disponibilidade === tab &&
-    (categoryFilter === "Todas" || p.categoria === categoryFilter) &&
-    (banhoFilter === "Todos" || p.banho === banhoFilter)
-  );
+  const destaqueProducts = colecaoDestaque ? items.filter((p) => p.collection === colecaoDestaque) : [];
+
+  function clearCollectionFilter() { setCollectionFilter(""); }
+  function selectTab(t) { setTab(t); clearCollectionFilter(); }
+  function selectCategoryFilter(c) { setCategoryFilter(c); clearCollectionFilter(); }
+  function selectBanhoFilter(b) { setBanhoFilter(b); clearCollectionFilter(); }
+
+  const filtered = collectionFilter
+    ? items.filter((p) => p.collection === collectionFilter)
+    : items.filter((p) =>
+        p.disponibilidade === tab &&
+        (categoryFilter === "Todas" || p.categoria === categoryFilter) &&
+        (banhoFilter === "Todos" || p.banho === banhoFilter)
+      );
 
   function addToCart(p, personalizacao = "") {
     const key = personalizacao ? `${p.id}::${personalizacao}` : p.id;
@@ -151,22 +163,63 @@ export default function PublicCatalogPage() {
         </div>
       </div>
 
-      <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 14, flexWrap: "wrap", padding: "0 16px" }}>
-        {TABS.map((t) => (
-          <button key={t} onClick={() => setTab(t)} style={{
-            fontFamily: "Manrope", fontSize: 13, fontWeight: 700, padding: "9px 22px", borderRadius: 20,
-            border: `1px solid ${tab === t ? GREEN : "#E2E0D6"}`,
-            background: tab === t ? GREEN : "#fff", color: tab === t ? "#fff" : "#5B6B63", cursor: "pointer",
-          }}>{t}</button>
-        ))}
-      </div>
+      {colecaoDestaque && destaqueProducts.length > 0 && (
+        <div style={{ padding: "0 16px", marginBottom: 22 }}>
+          <div style={{
+            maxWidth: 1200, margin: "0 auto", background: GREEN_DARK, borderRadius: 18, padding: "26px 28px",
+            display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16,
+            border: `1px solid ${GOLD}55`,
+          }}>
+            <div>
+              <p style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "Manrope", color: GOLD, fontSize: 11.5, fontWeight: 700, letterSpacing: ".08em", margin: 0 }}>
+                <Sparkles size={13} /> NOVA COLEÇÃO
+              </p>
+              <h2 style={{ fontFamily: "Cormorant Garamond", color: "#fff", fontSize: 25, fontWeight: 600, margin: "4px 0 6px" }}>
+                Conheça a nova coleção {colecaoDestaque}
+              </h2>
+              <p style={{ fontFamily: "Manrope", color: "#B7CFC4", fontSize: 12.5, margin: 0 }}>
+                {destaqueProducts.length} peça{destaqueProducts.length === 1 ? "" : "s"} disponíve{destaqueProducts.length === 1 ? "l" : "is"}
+              </p>
+            </div>
+            <button onClick={() => setCollectionFilter(colecaoDestaque)} className="cc-btn-gold" style={{ flexShrink: 0 }}>
+              Ver peças
+            </button>
+          </div>
+        </div>
+      )}
 
-      <div style={{ marginBottom: 22 }}>
-        <ChipRow options={["Todas", ...categoryOptions]} value={categoryFilter} onChange={setCategoryFilter} />
-        {banhoOptions.length > 0 && (
-          <ChipRow options={["Todos", ...banhoOptions]} value={banhoFilter} onChange={setBanhoFilter} />
-        )}
-      </div>
+      {collectionFilter ? (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 22, padding: "0 16px", flexWrap: "wrap" }}>
+          <span style={{ fontFamily: "Manrope", fontSize: 13, color: "#5B6B63" }}>
+            Mostrando a coleção <strong style={{ color: INK }}>{collectionFilter}</strong>
+          </span>
+          <button onClick={clearCollectionFilter} style={{
+            fontFamily: "Manrope", fontSize: 12.5, fontWeight: 700, padding: "6px 14px", borderRadius: 20,
+            border: `1px solid ${GREEN}`, background: "#fff", color: GREEN, cursor: "pointer",
+          }}>
+            Ver todo o catálogo
+          </button>
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 14, flexWrap: "wrap", padding: "0 16px" }}>
+            {TABS.map((t) => (
+              <button key={t} onClick={() => selectTab(t)} style={{
+                fontFamily: "Manrope", fontSize: 13, fontWeight: 700, padding: "9px 22px", borderRadius: 20,
+                border: `1px solid ${tab === t ? GREEN : "#E2E0D6"}`,
+                background: tab === t ? GREEN : "#fff", color: tab === t ? "#fff" : "#5B6B63", cursor: "pointer",
+              }}>{t}</button>
+            ))}
+          </div>
+
+          <div style={{ marginBottom: 22 }}>
+            <ChipRow options={["Todas", ...categoryOptions]} value={categoryFilter} onChange={selectCategoryFilter} />
+            {banhoOptions.length > 0 && (
+              <ChipRow options={["Todos", ...banhoOptions]} value={banhoFilter} onChange={selectBanhoFilter} />
+            )}
+          </div>
+        </>
+      )}
 
       <main style={{ padding: "0 24px 60px", maxWidth: 1200, margin: "0 auto" }}>
         {loading && <p style={{ textAlign: "center", fontFamily: "Manrope", color: "#8A968F" }}>Carregando catálogo...</p>}

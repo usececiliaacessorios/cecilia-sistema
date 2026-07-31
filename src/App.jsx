@@ -14,6 +14,7 @@ import {
 import * as XLSX from "xlsx";
 import { login, getCurrentUser, getCurrentProfile, updateCurrentProfile, onAuthChange, requestPasswordReset } from "./services/auth";
 import { listProducts, listCategories, createProduct, updateProduct, deleteProduct, bulkDeleteProducts, uploadProductPhoto, bulkCreateProducts } from "./services/produtos";
+import { getSettings, updateColecaoDestaque } from "./services/configuracoes";
 import { listSuppliers, createSupplier, updateSupplier, deleteSupplier } from "./services/fornecedores";
 import { listClients, createClient, updateClient, deleteClient } from "./services/clientes";
 import { listOrders, createOrder, updateOrder, updateOrderStatus, deleteOrder } from "./services/pedidos";
@@ -195,38 +196,25 @@ const thStyle = {
 
 /* ---------------- Logo ---------------- */
 
-// Wordmark reutilizável: texto serifado dourado + estrelinha decorativa.
-// variant="large" acrescenta a linha com losango e a tagline em itálico.
-export function CeciliaLogo({ variant = "large" }) {
+const LOGO_SRC = {
+  verde: "/cecilia-logo-fundo-verde.png",
+  branco: "/cecilia-logo-fundo-branco.png",
+};
+
+// Logo oficial (imagem real, proporção 3:2). variant="compact" reduz o
+// tamanho máximo para uso na barra lateral; background escolhe a versão
+// certa conforme o fundo em que o logo será colocado.
+export function CeciliaLogo({ variant = "large", background = "verde" }) {
   const compact = variant === "compact";
   return (
-    <div>
-      <div style={{ position: "relative", display: "inline-block" }}>
-        <span style={{
-          fontFamily: "Cormorant Garamond", fontWeight: 600, fontStyle: "normal",
-          fontSize: compact ? 21 : 40, color: GOLD, letterSpacing: ".02em", lineHeight: 1,
-        }}>
-          Cecília
-        </span>
-        <Sparkles
-          size={compact ? 12 : 18}
-          color={GOLD}
-          style={{ position: "absolute", top: compact ? -5 : -10, right: compact ? -11 : -18 }}
-        />
-      </div>
-      {!compact && (
-        <>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, margin: "12px 0 8px" }}>
-            <span style={{ width: 44, height: 1, background: GOLD, display: "inline-block" }} />
-            <span style={{ width: 6, height: 6, background: GOLD, transform: "rotate(45deg)", display: "inline-block", flexShrink: 0 }} />
-            <span style={{ width: 44, height: 1, background: GOLD, display: "inline-block" }} />
-          </div>
-          <p style={{ fontFamily: "Cormorant Garamond", fontStyle: "italic", fontSize: 15.5, color: GOLD_SOFT, margin: 0, textAlign: "center" }}>
-            Elegante como você.
-          </p>
-        </>
-      )}
-    </div>
+    <img
+      src={LOGO_SRC[background]}
+      alt="Cecília Semijoias"
+      style={{
+        display: "block", width: "100%", height: "auto",
+        maxWidth: compact ? 170 : 340, margin: compact ? 0 : "0 auto",
+      }}
+    />
   );
 }
 
@@ -2105,11 +2093,36 @@ function CatalogoView({ products }) {
 
 function ConfiguracoesView() {
   const [tab, setTab] = useState("empresa");
+  const [colecaoDestaque, setColecaoDestaque] = useState("");
+  const [colecaoLoading, setColecaoLoading] = useState(true);
+  const [colecaoSaving, setColecaoSaving] = useState(false);
+  const [colecaoMsg, setColecaoMsg] = useState("");
   const tabs = [
     { id: "empresa", label: "Empresa" }, { id: "financeiro", label: "Financeiro" },
     { id: "categorias", label: "Categorias" }, { id: "usuarios", label: "Usuários e permissões" },
     { id: "backup", label: "Backup" },
   ];
+
+  useEffect(() => {
+    getSettings()
+      .then((s) => setColecaoDestaque(s.colecao_destaque || ""))
+      .catch((err) => console.error("Erro ao carregar configurações:", err))
+      .finally(() => setColecaoLoading(false));
+  }, []);
+
+  async function saveColecaoDestaque() {
+    setColecaoSaving(true);
+    setColecaoMsg("");
+    try {
+      await updateColecaoDestaque(colecaoDestaque.trim());
+      setColecaoMsg("Salvo!");
+    } catch (err) {
+      setColecaoMsg("Erro ao salvar: " + err.message);
+    } finally {
+      setColecaoSaving(false);
+    }
+  }
+
   return (
     <div>
       <SectionTitle title="Configurações" subtitle="Personalize o sistema Cecília" />
@@ -2136,6 +2149,23 @@ function ConfiguracoesView() {
               </div>
             </Field>
             <Field label="Cor primária"><div style={{ display: "flex", gap: 8 }}><div style={{ width: 32, height: 32, borderRadius: 8, background: GREEN }} /><div style={{ width: 32, height: 32, borderRadius: 8, background: GOLD }} /><div style={{ width: 32, height: 32, borderRadius: 8, background: "#fff", border: "1px solid #E2E0D6" }} /></div></Field>
+            <Field label="Coleção em destaque" span={2}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <TextInput
+                  value={colecaoDestaque}
+                  onChange={(e) => { setColecaoDestaque(e.target.value); setColecaoMsg(""); }}
+                  placeholder={colecaoLoading ? "Carregando..." : "ex: Essence"}
+                  disabled={colecaoLoading}
+                />
+                <GhostButton onClick={saveColecaoDestaque} disabled={colecaoLoading || colecaoSaving}>
+                  {colecaoSaving ? "Salvando..." : "Salvar"}
+                </GhostButton>
+              </div>
+              <p style={{ fontFamily: "Manrope", fontSize: 12, color: "#8A968F", margin: "6px 0 0" }}>
+                Aparece como card de destaque no catálogo público. Use o nome exato da coleção (campo "Coleção" do produto) — deixe em branco para não mostrar o card.
+              </p>
+              {colecaoMsg && <p style={{ fontFamily: "Manrope", fontSize: 12, color: colecaoMsg.startsWith("Erro") ? "#B94A48" : GREEN, margin: "6px 0 0" }}>{colecaoMsg}</p>}
+            </Field>
           </div>
         )}
         {tab === "financeiro" && (
