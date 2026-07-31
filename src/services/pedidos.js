@@ -29,6 +29,7 @@ function mapOrderRow(row) {
     total: row.total ?? 0,
     baixado: row.baixado,
     data: row.data,
+    origem: row.origem || "Loja Virtual",
   };
 }
 
@@ -61,6 +62,7 @@ export async function createOrder(form) {
       transportadora: form.transportadora,
       rastreio: form.rastreio,
       obs: form.obs,
+      origem: form.origem || "Loja Virtual",
     })
     .select()
     .single();
@@ -96,6 +98,7 @@ export async function updateOrder(id, form) {
       transportadora: form.transportadora,
       rastreio: form.rastreio,
       obs: form.obs,
+      origem: form.origem || "Loja Virtual",
     })
     .eq("id", id);
 

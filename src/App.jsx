@@ -44,27 +44,8 @@ const CATEGORY_PREFIX = {
 };
 const CATEGORIES = Object.keys(CATEGORY_PREFIX);
 
-const salesByMonth = [
-  { mes: "Fev", vendas: 5200 }, { mes: "Mar", vendas: 6100 }, { mes: "Abr", vendas: 5800 },
-  { mes: "Mai", vendas: 7300 }, { mes: "Jun", vendas: 8100 }, { mes: "Jul", vendas: 9250 },
-];
-const profitByMonth = [
-  { mes: "Fev", lucro: 2400 }, { mes: "Mar", lucro: 2850 }, { mes: "Abr", lucro: 2600 },
-  { mes: "Mai", lucro: 3400 }, { mes: "Jun", lucro: 3900 }, { mes: "Jul", lucro: 4450 },
-];
-const salesByCategory = [
-  { name: "Brincos", value: 32 }, { name: "Anéis", value: 24 }, { name: "Colares", value: 18 },
-  { name: "Pulseiras", value: 14 }, { name: "Conjuntos", value: 12 },
-];
-const topProducts = [
-  { name: "Brinco Argola Trança", vendas: 41 }, { name: "Anel Solitário Baguete", vendas: 37 },
-  { name: "Colar Gota Cristal", vendas: 22 }, { name: "Conjunto Pérolas", vendas: 15 },
-];
-const salesOrigin = [
-  { name: "Instagram", value: 42 }, { name: "WhatsApp", value: 31 },
-  { name: "Loja Virtual", value: 17 }, { name: "Presencial", value: 10 },
-];
 const PIE_COLORS = [GREEN, GOLD, "#8AA89B", "#DCC38A", "#3F7A63"];
+const MESES_ABREV = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
 export const money = (v) =>
   (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -481,19 +462,88 @@ function Topbar({ title, setMobileOpen }) {
 
 /* ---------------- Dashboard ---------------- */
 
-function Dashboard({ products }) {
+function EmptyChartState({ message }) {
+  return (
+    <div style={{ height: 220, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A968F", textAlign: "center" }}>{message}</p>
+    </div>
+  );
+}
+
+function Dashboard({ products, orders, cashflow }) {
+  const now = new Date();
+  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const isCurrentMonth = (dateStr) => !!dateStr && dateStr.slice(0, 7) === currentMonthKey;
+
   const lowStock = products.filter((p) => p.quantidade <= p.estoqueMinimo);
+
+  const ordersThisMonth = orders.filter((o) => isCurrentMonth(o.data));
+  const ordersThisMonthValid = ordersThisMonth.filter((o) => o.status !== "Cancelado");
+  const ordersValid = orders.filter((o) => o.status !== "Cancelado");
+
+  const faturamentoMes = ordersThisMonthValid.reduce((s, o) => s + (o.total || 0), 0);
+
+  const cashflowThisMonth = cashflow.filter((c) => isCurrentMonth(c.data));
+  const lucroMes = cashflowThisMonth.reduce((s, c) => s + (c.valor || 0), 0);
+
+  const investidoEstoque = products.reduce((s, p) => s + (p.quantidade || 0) * (p.custoTotal || 0), 0);
+
+  const pedidosPagosMes = ordersThisMonth.filter((o) => o.baixado).length;
+  const ticketMedio = pedidosPagosMes > 0 ? faturamentoMes / pedidosPagosMes : 0;
+
+  const produtosVendidosMes = ordersThisMonthValid.reduce((s, o) => s + (o.itens || []).reduce((si, i) => si + (i.qtd || 0), 0), 0);
+
+  const pedidosAndamento = orders.filter((o) => ["Aguardando pagamento", "Pago", "Separando", "Enviado"].includes(o.status)).length;
+  const pedidosPendentes = orders.filter((o) => o.status === "Aguardando pagamento").length;
+
+  // Últimos 6 meses (incluindo o atual) — meses sem pedidos/lançamentos aparecem com 0, não somem.
+  const last6Months = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+    return { key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`, mes: MESES_ABREV[d.getMonth()] };
+  });
+  const salesByMonthData = last6Months.map(({ key, mes }) => ({
+    mes, vendas: ordersValid.filter((o) => o.data?.slice(0, 7) === key).reduce((s, o) => s + (o.total || 0), 0),
+  }));
+  const profitByMonthData = last6Months.map(({ key, mes }) => ({
+    mes, lucro: cashflow.filter((c) => c.data?.slice(0, 7) === key).reduce((s, c) => s + (c.valor || 0), 0),
+  }));
+
+  // Vendas por categoria e produtos mais vendidos — agregados de todos os itens de pedidos válidos (não cancelados)
+  const productById = Object.fromEntries(products.map((p) => [p.id, p]));
+  const categoryTotals = {};
+  const productTotals = {};
+  ordersValid.forEach((o) => {
+    (o.itens || []).forEach((i) => {
+      const categoria = productById[i.productId]?.category || "Outros";
+      categoryTotals[categoria] = (categoryTotals[categoria] || 0) + i.qtd;
+      productTotals[i.name] = (productTotals[i.name] || 0) + i.qtd;
+    });
+  });
+  const salesByCategoryData = Object.entries(categoryTotals).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  const topProductsData = Object.entries(productTotals).map(([name, vendas]) => ({ name, vendas })).sort((a, b) => b.vendas - a.vendas).slice(0, 5);
+
+  // Origem das vendas — proporção entre os pedidos válidos
+  const originTotals = {};
+  ordersValid.forEach((o) => {
+    const origem = o.origem || "Loja Virtual";
+    originTotals[origem] = (originTotals[origem] || 0) + 1;
+  });
+  const originCount = Object.values(originTotals).reduce((a, b) => a + b, 0);
+  const salesOriginData = Object.entries(originTotals).map(([name, count]) => ({ name, value: originCount ? Math.round((count / originCount) * 100) : 0 }));
+
+  const mesAtualLabel = now.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+
   return (
     <div>
-      <SectionTitle title="Visão geral" subtitle="Resumo do desempenho da Cecília — julho de 2026" />
+      <SectionTitle title="Visão geral" subtitle={`Resumo do desempenho da Cecília — ${mesAtualLabel}`} />
       <div className="cc-grid-stats">
-        <StatCard icon={Wallet} label="Faturamento do mês" value={money(9250)} trend="+13,2%" trendUp accent={GREEN} />
-        <StatCard icon={TrendingUp} label="Lucro do mês" value={money(4450)} trend="+14,1%" trendUp accent={GOLD} />
-        <StatCard icon={Boxes} label="Investido em estoque" value={money(6840)} accent="#3E6E85" />
-        <StatCard icon={Sparkles} label="Ticket médio" value={money(112.4)} trend="+4,8%" trendUp accent={GREEN} />
-        <StatCard icon={Package} label="Produtos vendidos" value="83" trend="+9" trendUp accent={GOLD} />
-        <StatCard icon={Clock} label="Pedidos em andamento" value="7" accent="#3E6E85" />
-        <StatCard icon={AlertTriangle} label="Pedidos pendentes" value="3" trend="-1" accent="#B5533D" />
+        <StatCard icon={Wallet} label="Faturamento do mês" value={money(faturamentoMes)} accent={GREEN} />
+        <StatCard icon={TrendingUp} label="Lucro do mês" value={money(lucroMes)} accent={GOLD} />
+        <StatCard icon={Boxes} label="Investido em estoque" value={money(investidoEstoque)} accent="#3E6E85" />
+        <StatCard icon={Sparkles} label="Ticket médio" value={money(ticketMedio)} accent={GREEN} />
+        <StatCard icon={Package} label="Produtos vendidos" value={String(produtosVendidosMes)} accent={GOLD} />
+        <StatCard icon={Clock} label="Pedidos em andamento" value={String(pedidosAndamento)} accent="#3E6E85" />
+        <StatCard icon={AlertTriangle} label="Pedidos pendentes" value={String(pedidosPendentes)} accent="#B5533D" />
         <StatCard icon={AlertTriangle} label="Estoque baixo" value={String(lowStock.length)} accent="#B5533D" />
       </div>
 
@@ -501,7 +551,7 @@ function Dashboard({ products }) {
         <div className="cc-card" style={{ padding: 20 }}>
           <p className="cc-chart-title">Vendas por mês</p>
           <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={salesByMonth}>
+            <AreaChart data={salesByMonthData}>
               <defs>
                 <linearGradient id="gVendas" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor={GREEN} stopOpacity={0.35} />
@@ -520,7 +570,7 @@ function Dashboard({ products }) {
         <div className="cc-card" style={{ padding: 20 }}>
           <p className="cc-chart-title">Lucro mensal</p>
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={profitByMonth}>
+            <BarChart data={profitByMonthData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#EFEBE0" vertical={false} />
               <XAxis dataKey="mes" tick={{ fontFamily: "Manrope", fontSize: 12, fill: "#8A968F" }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontFamily: "Manrope", fontSize: 11, fill: "#8A968F" }} axisLine={false} tickLine={false} />
@@ -532,57 +582,63 @@ function Dashboard({ products }) {
 
         <div className="cc-card" style={{ padding: 20 }}>
           <p className="cc-chart-title">Vendas por categoria</p>
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie data={salesByCategory} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80} paddingAngle={3}>
-                {salesByCategory.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-              </Pie>
-              <Tooltip contentStyle={{ fontFamily: "Manrope", fontSize: 12, borderRadius: 10, border: "1px solid #EFEBE0" }} />
-              <Legend wrapperStyle={{ fontFamily: "Manrope", fontSize: 11.5 }} />
-            </PieChart>
-          </ResponsiveContainer>
+          {salesByCategoryData.length === 0 ? <EmptyChartState message="Nenhuma venda registrada ainda." /> : (
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie data={salesByCategoryData} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80} paddingAngle={3}>
+                  {salesByCategoryData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                </Pie>
+                <Tooltip contentStyle={{ fontFamily: "Manrope", fontSize: 12, borderRadius: 10, border: "1px solid #EFEBE0" }} />
+                <Legend wrapperStyle={{ fontFamily: "Manrope", fontSize: 11.5 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
         <div className="cc-card" style={{ padding: 20 }}>
           <p className="cc-chart-title">Produtos mais vendidos</p>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={topProducts} layout="vertical" margin={{ left: 10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#EFEBE0" horizontal={false} />
-              <XAxis type="number" tick={{ fontFamily: "Manrope", fontSize: 11, fill: "#8A968F" }} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="name" width={130} tick={{ fontFamily: "Manrope", fontSize: 11.5, fill: INK }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ fontFamily: "Manrope", fontSize: 12, borderRadius: 10, border: "1px solid #EFEBE0" }} />
-              <Bar dataKey="vendas" fill={GREEN} radius={[0, 6, 6, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {topProductsData.length === 0 ? <EmptyChartState message="Nenhuma venda registrada ainda." /> : (
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={topProductsData} layout="vertical" margin={{ left: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#EFEBE0" horizontal={false} />
+                <XAxis type="number" tick={{ fontFamily: "Manrope", fontSize: 11, fill: "#8A968F" }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="name" width={130} tick={{ fontFamily: "Manrope", fontSize: 11.5, fill: INK }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ fontFamily: "Manrope", fontSize: 12, borderRadius: 10, border: "1px solid #EFEBE0" }} />
+                <Bar dataKey="vendas" fill={GREEN} radius={[0, 6, 6, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
 
         <div className="cc-card" style={{ padding: 20, gridColumn: "1 / -1" }}>
           <p className="cc-chart-title">Origem das vendas</p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 26, alignItems: "center" }}>
-            <ResponsiveContainer width={220} height={200}>
-              <PieChart>
-                <Pie data={salesOrigin} dataKey="value" nameKey="name" innerRadius={45} outerRadius={75} paddingAngle={3}>
-                  {salesOrigin.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                </Pie>
-                <Tooltip contentStyle={{ fontFamily: "Manrope", fontSize: 12, borderRadius: 10, border: "1px solid #EFEBE0" }} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1, minWidth: 200 }}>
-              {salesOrigin.map((o, i) => {
-                const icons = { Instagram, WhatsApp: MessageCircle, "Loja Virtual": Store, Presencial: MapPin };
-                const Icon = icons[o.name] || Store;
-                return (
-                  <div key={o.name} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ width: 28, height: 28, borderRadius: 8, background: `${PIE_COLORS[i]}1F`, display: "flex", alignItems: "center", justifyContent: "center", color: PIE_COLORS[i] }}>
-                      <Icon size={14} />
+          {salesOriginData.length === 0 ? <EmptyChartState message="Nenhuma venda registrada ainda." /> : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 26, alignItems: "center" }}>
+              <ResponsiveContainer width={220} height={200}>
+                <PieChart>
+                  <Pie data={salesOriginData} dataKey="value" nameKey="name" innerRadius={45} outerRadius={75} paddingAngle={3}>
+                    {salesOriginData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip contentStyle={{ fontFamily: "Manrope", fontSize: 12, borderRadius: 10, border: "1px solid #EFEBE0" }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1, minWidth: 200 }}>
+                {salesOriginData.map((o, i) => {
+                  const icons = { Instagram, WhatsApp: MessageCircle, "Loja Virtual": Store, Presencial: MapPin };
+                  const Icon = icons[o.name] || Store;
+                  return (
+                    <div key={o.name} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 28, height: 28, borderRadius: 8, background: `${PIE_COLORS[i]}1F`, display: "flex", alignItems: "center", justifyContent: "center", color: PIE_COLORS[i] }}>
+                        <Icon size={14} />
+                      </div>
+                      <span style={{ fontFamily: "Manrope", fontSize: 13, color: INK, flex: 1 }}>{o.name}</span>
+                      <span style={{ fontFamily: "Manrope", fontSize: 13, fontWeight: 700, color: INK }}>{o.value}%</span>
                     </div>
-                    <span style={{ fontFamily: "Manrope", fontSize: 13, color: INK, flex: 1 }}>{o.name}</span>
-                    <span style={{ fontFamily: "Manrope", fontSize: 13, fontWeight: 700, color: INK }}>{o.value}%</span>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
@@ -1504,7 +1560,7 @@ function PedidosPanel({ orders, setOrders, clients, products, onStatusChange, lo
   const [modal, setModal] = useState(null);
   const [saving, setSaving] = useState(false);
   function openNew() {
-    setModal({ mode: "new", data: { clienteId: "", itens: [], desconto: 0, forma: "Pix", parcelas: 1, status: "Aguardando pagamento", rastreio: "", transportadora: "", obs: "", baixado: false } });
+    setModal({ mode: "new", data: { clienteId: "", itens: [], desconto: 0, forma: "Pix", parcelas: 1, status: "Aguardando pagamento", rastreio: "", transportadora: "", obs: "", baixado: false, origem: "Loja Virtual" } });
   }
   function openEdit(o) { setModal({ mode: "edit", data: { ...o } }); }
 
@@ -1682,6 +1738,11 @@ function OrderForm({ data, clients, products, onSave, saving, onCancel }) {
         <Field label="Status">
           <Select value={form.status} onChange={set("status")}>
             {ORDER_STATUSES.map((s) => <option key={s}>{s}</option>)}
+          </Select>
+        </Field>
+        <Field label="Origem da venda">
+          <Select value={form.origem || "Loja Virtual"} onChange={set("origem")}>
+            <option>Instagram</option><option>WhatsApp</option><option>Loja Virtual</option><option>Presencial</option>
           </Select>
         </Field>
         <Field label="Transportadora"><TextInput value={form.transportadora} onChange={set("transportadora")} /></Field>
@@ -2315,7 +2376,7 @@ export default function App() {
       <div style={{ flex: 1, minWidth: 0 }}>
         <Topbar title={VIEW_TITLES[active]} setMobileOpen={setMobileOpen} />
         <main style={{ padding: "22px 24px 60px" }}>
-          {active === "dashboard" && <Dashboard products={products} />}
+          {active === "dashboard" && <Dashboard products={products} orders={orders} cashflow={cashflow} />}
           {active === "produtos" && <ProdutosView products={products} setProducts={setProducts} suppliers={suppliers} categories={categories} loading={productsLoading} loadError={productsError} />}
           {active === "clientes" && <ClientesView clients={clients} setClients={setClients} loading={productsLoading} loadError={productsError} />}
           {active === "fornecedores" && <FornecedoresView suppliers={suppliers} setSuppliers={setSuppliers} loading={productsLoading} loadError={productsError} />}
