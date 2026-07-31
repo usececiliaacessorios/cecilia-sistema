@@ -153,14 +153,6 @@ export async function listPublicCatalog() {
   return data;
 }
 
-// Coleção em destaque (view "public_settings", sem exigir login) — usado
-// pelo card de nova coleção na página /catalogo
-export async function getPublicCollectionHighlight() {
-  const { data, error } = await supabase.from("public_settings").select("colecao_destaque").single();
-  if (error) throw error;
-  return data?.colecao_destaque || "";
-}
-
 export async function deleteProduct(id) {
   const { error } = await supabase.from("products").delete().eq("id", id);
   if (error) throw error;

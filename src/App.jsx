@@ -14,7 +14,6 @@ import {
 import * as XLSX from "xlsx";
 import { login, getCurrentUser, getCurrentProfile, updateCurrentProfile, onAuthChange, requestPasswordReset } from "./services/auth";
 import { listProducts, listCategories, createProduct, updateProduct, deleteProduct, bulkDeleteProducts, uploadProductPhoto, bulkCreateProducts } from "./services/produtos";
-import { getSettings, updateColecaoDestaque } from "./services/configuracoes";
 import { listSuppliers, createSupplier, updateSupplier, deleteSupplier } from "./services/fornecedores";
 import { listClients, createClient, updateClient, deleteClient } from "./services/clientes";
 import { listOrders, createOrder, updateOrder, updateOrderStatus, deleteOrder } from "./services/pedidos";
@@ -2093,35 +2092,11 @@ function CatalogoView({ products }) {
 
 function ConfiguracoesView() {
   const [tab, setTab] = useState("empresa");
-  const [colecaoDestaque, setColecaoDestaque] = useState("");
-  const [colecaoLoading, setColecaoLoading] = useState(true);
-  const [colecaoSaving, setColecaoSaving] = useState(false);
-  const [colecaoMsg, setColecaoMsg] = useState("");
   const tabs = [
     { id: "empresa", label: "Empresa" }, { id: "financeiro", label: "Financeiro" },
     { id: "categorias", label: "Categorias" }, { id: "usuarios", label: "Usuários e permissões" },
     { id: "backup", label: "Backup" },
   ];
-
-  useEffect(() => {
-    getSettings()
-      .then((s) => setColecaoDestaque(s.colecao_destaque || ""))
-      .catch((err) => console.error("Erro ao carregar configurações:", err))
-      .finally(() => setColecaoLoading(false));
-  }, []);
-
-  async function saveColecaoDestaque() {
-    setColecaoSaving(true);
-    setColecaoMsg("");
-    try {
-      await updateColecaoDestaque(colecaoDestaque.trim());
-      setColecaoMsg("Salvo!");
-    } catch (err) {
-      setColecaoMsg("Erro ao salvar: " + err.message);
-    } finally {
-      setColecaoSaving(false);
-    }
-  }
 
   return (
     <div>
@@ -2149,23 +2124,6 @@ function ConfiguracoesView() {
               </div>
             </Field>
             <Field label="Cor primária"><div style={{ display: "flex", gap: 8 }}><div style={{ width: 32, height: 32, borderRadius: 8, background: GREEN }} /><div style={{ width: 32, height: 32, borderRadius: 8, background: GOLD }} /><div style={{ width: 32, height: 32, borderRadius: 8, background: "#fff", border: "1px solid #E2E0D6" }} /></div></Field>
-            <Field label="Coleção em destaque" span={2}>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <TextInput
-                  value={colecaoDestaque}
-                  onChange={(e) => { setColecaoDestaque(e.target.value); setColecaoMsg(""); }}
-                  placeholder={colecaoLoading ? "Carregando..." : "ex: Essence"}
-                  disabled={colecaoLoading}
-                />
-                <GhostButton onClick={saveColecaoDestaque} disabled={colecaoLoading || colecaoSaving}>
-                  {colecaoSaving ? "Salvando..." : "Salvar"}
-                </GhostButton>
-              </div>
-              <p style={{ fontFamily: "Manrope", fontSize: 12, color: "#8A968F", margin: "6px 0 0" }}>
-                Aparece como card de destaque no catálogo público. Use o nome exato da coleção (campo "Coleção" do produto) — deixe em branco para não mostrar o card.
-              </p>
-              {colecaoMsg && <p style={{ fontFamily: "Manrope", fontSize: 12, color: colecaoMsg.startsWith("Erro") ? "#B94A48" : GREEN, margin: "6px 0 0" }}>{colecaoMsg}</p>}
-            </Field>
           </div>
         )}
         {tab === "financeiro" && (
