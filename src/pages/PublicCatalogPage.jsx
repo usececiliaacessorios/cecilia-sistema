@@ -2,11 +2,14 @@ import React, { useEffect, useState } from "react";
 import { ImagePlus, MessageCircle, ShoppingBag, X, Heart } from "lucide-react";
 import { listPublicCatalog } from "../services/produtos";
 import { listWishlistIds, addWishlistItem, removeWishlistItem } from "../services/wishlist";
+import { registerVisit } from "../services/visitas";
 import { GREEN, GREEN_DARK, GOLD, CREAM, INK, FONT_IMPORT, money, CeciliaLogo } from "../App";
 
 const TABS = ["Pronta entrega", "Sob encomenda", "Meus favoritos"];
 const WHATSAPP_NUMBER = "5566999428631";
 const VISITOR_ID_KEY = "cecilia_visitor_id";
+const LAST_VISIT_KEY = "cecilia_last_visit_at";
+const VISIT_DEDUPE_MS = 30 * 60 * 1000; // 30 minutos
 
 function getVisitorId() {
   let id = localStorage.getItem(VISITOR_ID_KEY);
@@ -15,6 +18,11 @@ function getVisitorId() {
     localStorage.setItem(VISITOR_ID_KEY, id);
   }
   return id;
+}
+
+function shouldRegisterVisit() {
+  const last = Number(localStorage.getItem(LAST_VISIT_KEY) || 0);
+  return Date.now() - last > VISIT_DEDUPE_MS;
 }
 
 // Desconto por quantidade de peças no carrinho (não por valor).
@@ -84,6 +92,16 @@ export default function PublicCatalogPage() {
 
   useEffect(() => {
     listWishlistIds(visitorId).then((ids) => setFavorites(new Set(ids))).catch(() => {});
+  }, [visitorId]);
+
+  // Registra a visita no máximo uma vez a cada 30min por visitante — troca de
+  // filtro/aba não gera visita nova porque isso roda só uma vez, no mount.
+  // Grava o timestamp ANTES de chamar o Supabase (não no .then) para não
+  // duplicar quando o efeito roda duas vezes de seguida (StrictMode em dev).
+  useEffect(() => {
+    if (!shouldRegisterVisit()) return;
+    localStorage.setItem(LAST_VISIT_KEY, String(Date.now()));
+    registerVisit(visitorId).catch(() => localStorage.removeItem(LAST_VISIT_KEY));
   }, [visitorId]);
 
   async function toggleFavorite(productId) {

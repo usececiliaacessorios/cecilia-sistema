@@ -20,6 +20,7 @@ import { listOrders, createOrder, updateOrder, updateOrderStatus, deleteOrder } 
 import { listCashflow, createCashflowEntry, updateCashflowEntry, deleteCashflowEntry } from "./services/caixa";
 import { listPurchases, createPurchase } from "./services/compras";
 import { listWishlistCounts } from "./services/wishlist";
+import { listVisits } from "./services/visitas";
 
 /* ============================================================
    CECÍLIA — Sistema de Gestão
@@ -459,10 +460,14 @@ function EmptyChartState({ message }) {
   );
 }
 
-function Dashboard({ products, orders, cashflow }) {
+function Dashboard({ products, orders, cashflow, visits }) {
   const now = new Date();
   const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const isCurrentMonth = (dateStr) => !!dateStr && dateStr.slice(0, 7) === currentMonthKey;
+
+  const visitsThisMonth = visits.filter((v) => isCurrentMonth(v.criado_em));
+  const visitasCatalogoMes = visitsThisMonth.length;
+  const visitantesUnicosMes = new Set(visitsThisMonth.map((v) => v.visitor_id)).size;
 
   const lowStock = products.filter((p) => p.quantidade <= p.estoqueMinimo);
 
@@ -534,6 +539,8 @@ function Dashboard({ products, orders, cashflow }) {
         <StatCard icon={Clock} label="Pedidos em andamento" value={String(pedidosAndamento)} accent="#3E6E85" />
         <StatCard icon={AlertTriangle} label="Pedidos pendentes" value={String(pedidosPendentes)} accent="#B5533D" />
         <StatCard icon={AlertTriangle} label="Estoque baixo" value={String(lowStock.length)} accent="#B5533D" />
+        <StatCard icon={Eye} label="Visitas ao catálogo (mês)" value={String(visitasCatalogoMes)} accent="#3E6E85" />
+        <StatCard icon={Users} label="Visitantes únicos (mês)" value={String(visitantesUnicosMes)} accent={GOLD} />
       </div>
 
       <div className="cc-grid-charts">
@@ -2260,7 +2267,7 @@ function CashflowForm({ data, onSave, saving, onCancel }) {
 
 /* ---------------- Relatórios ---------------- */
 
-function RelatoriosView({ products, clients, orders, cashflow, wishlistCounts, loading }) {
+function RelatoriosView({ products, clients, orders, cashflow, wishlistCounts, visits, loading }) {
   // Quantidade vendida por produto, somando os itens de pedidos que não foram cancelados
   const vendidoPorProduto = {};
   orders.filter((o) => o.status !== "Cancelado").forEach((o) => {
@@ -2305,6 +2312,18 @@ function RelatoriosView({ products, clients, orders, cashflow, wishlistCounts, l
     .sort((a, b) => b.qty - a.qty)
     .map((p) => ({ label: p.label, value: `♥ ${p.qty}` }));
 
+  // Visitas por dia nos últimos 30 dias — dias sem visita aparecem com 0, não somem.
+  const last30Days = Array.from({ length: 30 }, (_, i) => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - (29 - i));
+    return { key: d.toISOString().slice(0, 10), label: `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}` };
+  });
+  const visitsByDayData = last30Days.map(({ key, label }) => ({
+    dia: label,
+    visitas: visits.filter((v) => v.criado_em?.slice(0, 10) === key).length,
+  }));
+
   const reports = [
     { title: "Produtos mais vendidos", data: maisVendidos },
     { title: "Lucro por categoria", data: lucroPorCategoria },
@@ -2334,6 +2353,24 @@ function RelatoriosView({ products, clients, orders, cashflow, wishlistCounts, l
             </div>
           </div>
         ))}
+        <div className="cc-card" style={{ padding: 20, gridColumn: "1 / -1" }}>
+          <p className="cc-chart-title">Visitas por dia (últimos 30 dias)</p>
+          <ResponsiveContainer width="100%" height={220}>
+            <AreaChart data={visitsByDayData}>
+              <defs>
+                <linearGradient id="gVisitas" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={GREEN} stopOpacity={0.35} />
+                  <stop offset="100%" stopColor={GREEN} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#EFEBE0" vertical={false} />
+              <XAxis dataKey="dia" interval={3} tick={{ fontFamily: "Manrope", fontSize: 10.5, fill: "#8A968F" }} axisLine={false} tickLine={false} />
+              <YAxis allowDecimals={false} tick={{ fontFamily: "Manrope", fontSize: 11, fill: "#8A968F" }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ fontFamily: "Manrope", fontSize: 12, borderRadius: 10, border: "1px solid #EFEBE0" }} />
+              <Area type="monotone" dataKey="visitas" stroke={GREEN} strokeWidth={2.5} fill="url(#gVisitas)" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
       </div>
     </div>
   );
@@ -2483,6 +2520,7 @@ export default function App() {
   const [orders, setOrders] = useState([]);
   const [cashflow, setCashflow] = useState([]);
   const [wishlistCounts, setWishlistCounts] = useState({});
+  const [visits, setVisits] = useState([]);
 
   // Verifica se já existe uma sessão ativa e escuta mudanças (login/logout em outra aba, expiração de token)
   useEffect(() => {
@@ -2521,8 +2559,9 @@ export default function App() {
       listCashflow(),
       listPurchases(),
       listWishlistCounts(),
+      listVisits(),
     ])
-      .then(([productRows, categoryRows, supplierRows, clientRows, orderRows, cashflowRows, purchaseRows, wishlistCountRows]) => {
+      .then(([productRows, categoryRows, supplierRows, clientRows, orderRows, cashflowRows, purchaseRows, wishlistCountRows, visitRows]) => {
         setProducts(productRows);
         setCategories(categoryRows);
         setSuppliers(supplierRows);
@@ -2531,6 +2570,7 @@ export default function App() {
         setCashflow(cashflowRows);
         setPurchases(purchaseRows);
         setWishlistCounts(wishlistCountRows);
+        setVisits(visitRows);
       })
       .catch((err) => setProductsError(err.message))
       .finally(() => setProductsLoading(false));
@@ -2629,7 +2669,7 @@ export default function App() {
       <div style={{ flex: 1, minWidth: 0 }}>
         <Topbar title={VIEW_TITLES[active]} setMobileOpen={setMobileOpen} />
         <main style={{ padding: "22px 24px 60px" }}>
-          {active === "dashboard" && <Dashboard products={products} orders={orders} cashflow={cashflow} />}
+          {active === "dashboard" && <Dashboard products={products} orders={orders} cashflow={cashflow} visits={visits} />}
           {active === "produtos" && <ProdutosView products={products} setProducts={setProducts} suppliers={suppliers} categories={categories} wishlistCounts={wishlistCounts} loading={productsLoading} loadError={productsError} />}
           {active === "clientes" && <ClientesView clients={clients} setClients={setClients} loading={productsLoading} loadError={productsError} />}
           {active === "fornecedores" && <FornecedoresView suppliers={suppliers} setSuppliers={setSuppliers} loading={productsLoading} loadError={productsError} />}
@@ -2638,7 +2678,7 @@ export default function App() {
           {active === "pedidos" && <PedidosView orders={orders} setOrders={setOrders} clients={clients} products={products} onStatusChange={handleOrderStatusChange} loading={productsLoading} loadError={productsError} />}
           {active === "precificacao" && <PrecificacaoView />}
           {active === "caixa" && <CaixaView cashflow={cashflow} setCashflow={setCashflow} orders={orders} setOrders={setOrders} clients={clients} products={products} onStatusChange={handleOrderStatusChange} loading={productsLoading} loadError={productsError} />}
-          {active === "relatorios" && <RelatoriosView products={products} clients={clients} orders={orders} cashflow={cashflow} wishlistCounts={wishlistCounts} loading={productsLoading} />}
+          {active === "relatorios" && <RelatoriosView products={products} clients={clients} orders={orders} cashflow={cashflow} wishlistCounts={wishlistCounts} visits={visits} loading={productsLoading} />}
           {active === "catalogo" && <CatalogoView products={products} />}
           {active === "config" && <ConfiguracoesView />}
         </main>
