@@ -19,6 +19,7 @@ import { listClients, createClient, updateClient, deleteClient } from "./service
 import { listOrders, createOrder, updateOrder, updateOrderStatus, deleteOrder } from "./services/pedidos";
 import { listCashflow, createCashflowEntry, updateCashflowEntry, deleteCashflowEntry } from "./services/caixa";
 import { listPurchases, createPurchase } from "./services/compras";
+import { listWishlistCounts } from "./services/wishlist";
 
 /* ============================================================
    CECÍLIA — Sistema de Gestão
@@ -861,7 +862,7 @@ function emptyProduct(categories) {
   };
 }
 
-function ProdutosView({ products, setProducts, suppliers, categories, loading, loadError }) {
+function ProdutosView({ products, setProducts, suppliers, categories, wishlistCounts, loading, loadError }) {
   const [modal, setModal] = useState(null); // {mode:'new'|'edit', data}
   const [filterCat, setFilterCat] = useState("Todas");
   const [filterDisponibilidade, setFilterDisponibilidade] = useState("Todas");
@@ -1039,7 +1040,14 @@ function ProdutosView({ products, setProducts, suppliers, categories, loading, l
                           </div>
                         )}
                         <div>
-                          <p style={{ margin: 0, fontWeight: 600 }}>{p.name}</p>
+                          <p style={{ margin: 0, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                            {p.name}
+                            {wishlistCounts[p.id] > 0 && (
+                              <span style={{ fontFamily: "Manrope", fontSize: 10.5, fontWeight: 700, color: "#B5533D", background: "#F4E3DE", borderRadius: 10, padding: "1px 7px", whiteSpace: "nowrap" }}>
+                                ♥ {wishlistCounts[p.id]}
+                              </span>
+                            )}
+                          </p>
                           <p style={{ margin: 0, fontSize: 11.5, color: "#8A968F" }}>{p.collection}</p>
                         </div>
                       </div>
@@ -2252,7 +2260,7 @@ function CashflowForm({ data, onSave, saving, onCancel }) {
 
 /* ---------------- Relatórios ---------------- */
 
-function RelatoriosView({ products, clients, orders, cashflow, loading }) {
+function RelatoriosView({ products, clients, orders, cashflow, wishlistCounts, loading }) {
   // Quantidade vendida por produto, somando os itens de pedidos que não foram cancelados
   const vendidoPorProduto = {};
   orders.filter((o) => o.status !== "Cancelado").forEach((o) => {
@@ -2291,6 +2299,12 @@ function RelatoriosView({ products, clients, orders, cashflow, loading }) {
     { label: "Saldo", value: money(entradas + saidas) },
   ];
 
+  const maisFavoritadas = products
+    .map((p) => ({ label: `${p.code ? p.code + " — " : ""}${p.name}`, qty: wishlistCounts[p.id] || 0 }))
+    .filter((p) => p.qty > 0)
+    .sort((a, b) => b.qty - a.qty)
+    .map((p) => ({ label: p.label, value: `♥ ${p.qty}` }));
+
   const reports = [
     { title: "Produtos mais vendidos", data: maisVendidos },
     { title: "Lucro por categoria", data: lucroPorCategoria },
@@ -2299,6 +2313,7 @@ function RelatoriosView({ products, clients, orders, cashflow, loading }) {
     { title: "Produtos sem movimentação", data: produtosParados },
     { title: "Lucro por produto", data: products.map((p) => ({ label: p.name, value: money(p.lucro) })) },
     { title: "Fluxo de caixa", data: resumoCaixa },
+    { title: "Peças mais favoritadas", data: maisFavoritadas },
   ];
   return (
     <div>
@@ -2467,6 +2482,7 @@ export default function App() {
   const [purchases, setPurchases] = useState([]);
   const [orders, setOrders] = useState([]);
   const [cashflow, setCashflow] = useState([]);
+  const [wishlistCounts, setWishlistCounts] = useState({});
 
   // Verifica se já existe uma sessão ativa e escuta mudanças (login/logout em outra aba, expiração de token)
   useEffect(() => {
@@ -2504,8 +2520,9 @@ export default function App() {
       listOrders(),
       listCashflow(),
       listPurchases(),
+      listWishlistCounts(),
     ])
-      .then(([productRows, categoryRows, supplierRows, clientRows, orderRows, cashflowRows, purchaseRows]) => {
+      .then(([productRows, categoryRows, supplierRows, clientRows, orderRows, cashflowRows, purchaseRows, wishlistCountRows]) => {
         setProducts(productRows);
         setCategories(categoryRows);
         setSuppliers(supplierRows);
@@ -2513,6 +2530,7 @@ export default function App() {
         setOrders(orderRows);
         setCashflow(cashflowRows);
         setPurchases(purchaseRows);
+        setWishlistCounts(wishlistCountRows);
       })
       .catch((err) => setProductsError(err.message))
       .finally(() => setProductsLoading(false));
@@ -2612,7 +2630,7 @@ export default function App() {
         <Topbar title={VIEW_TITLES[active]} setMobileOpen={setMobileOpen} />
         <main style={{ padding: "22px 24px 60px" }}>
           {active === "dashboard" && <Dashboard products={products} orders={orders} cashflow={cashflow} />}
-          {active === "produtos" && <ProdutosView products={products} setProducts={setProducts} suppliers={suppliers} categories={categories} loading={productsLoading} loadError={productsError} />}
+          {active === "produtos" && <ProdutosView products={products} setProducts={setProducts} suppliers={suppliers} categories={categories} wishlistCounts={wishlistCounts} loading={productsLoading} loadError={productsError} />}
           {active === "clientes" && <ClientesView clients={clients} setClients={setClients} loading={productsLoading} loadError={productsError} />}
           {active === "fornecedores" && <FornecedoresView suppliers={suppliers} setSuppliers={setSuppliers} loading={productsLoading} loadError={productsError} />}
           {active === "compras" && <ComprasView purchases={purchases} setPurchases={setPurchases} suppliers={suppliers} products={products} setProducts={setProducts} setCashflow={setCashflow} loading={productsLoading} loadError={productsError} />}
@@ -2620,7 +2638,7 @@ export default function App() {
           {active === "pedidos" && <PedidosView orders={orders} setOrders={setOrders} clients={clients} products={products} onStatusChange={handleOrderStatusChange} loading={productsLoading} loadError={productsError} />}
           {active === "precificacao" && <PrecificacaoView />}
           {active === "caixa" && <CaixaView cashflow={cashflow} setCashflow={setCashflow} orders={orders} setOrders={setOrders} clients={clients} products={products} onStatusChange={handleOrderStatusChange} loading={productsLoading} loadError={productsError} />}
-          {active === "relatorios" && <RelatoriosView products={products} clients={clients} orders={orders} cashflow={cashflow} loading={productsLoading} />}
+          {active === "relatorios" && <RelatoriosView products={products} clients={clients} orders={orders} cashflow={cashflow} wishlistCounts={wishlistCounts} loading={productsLoading} />}
           {active === "catalogo" && <CatalogoView products={products} />}
           {active === "config" && <ConfiguracoesView />}
         </main>

@@ -1,10 +1,21 @@
 import React, { useEffect, useState } from "react";
-import { ImagePlus, MessageCircle, ShoppingBag, X } from "lucide-react";
+import { ImagePlus, MessageCircle, ShoppingBag, X, Heart } from "lucide-react";
 import { listPublicCatalog } from "../services/produtos";
+import { listWishlistIds, addWishlistItem, removeWishlistItem } from "../services/wishlist";
 import { GREEN, GREEN_DARK, GOLD, CREAM, INK, FONT_IMPORT, money, CeciliaLogo } from "../App";
 
-const TABS = ["Pronta entrega", "Sob encomenda"];
+const TABS = ["Pronta entrega", "Sob encomenda", "Meus favoritos"];
 const WHATSAPP_NUMBER = "5566999428631";
+const VISITOR_ID_KEY = "cecilia_visitor_id";
+
+function getVisitorId() {
+  let id = localStorage.getItem(VISITOR_ID_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(VISITOR_ID_KEY, id);
+  }
+  return id;
+}
 
 // Desconto por quantidade de peças no carrinho (não por valor).
 // A contagem soma as quantidades de todos os itens, não o nº de produtos diferentes.
@@ -61,6 +72,8 @@ export default function PublicCatalogPage() {
   const [cartOpen, setCartOpen] = useState(false);
   const [personalizeFor, setPersonalizeFor] = useState(null);
   const [personalizeText, setPersonalizeText] = useState("");
+  const [visitorId] = useState(getVisitorId);
+  const [favorites, setFavorites] = useState(new Set());
 
   useEffect(() => {
     listPublicCatalog()
@@ -69,15 +82,39 @@ export default function PublicCatalogPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    listWishlistIds(visitorId).then((ids) => setFavorites(new Set(ids))).catch(() => {});
+  }, [visitorId]);
+
+  async function toggleFavorite(productId) {
+    const isFav = favorites.has(productId);
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      if (isFav) next.delete(productId); else next.add(productId);
+      return next;
+    });
+    try {
+      if (isFav) await removeWishlistItem(productId, visitorId);
+      else await addWishlistItem(productId, visitorId);
+    } catch (err) {
+      // desfaz a atualização otimista se a gravação falhar
+      setFavorites((prev) => {
+        const next = new Set(prev);
+        if (isFav) next.add(productId); else next.delete(productId);
+        return next;
+      });
+    }
+  }
+
   // Opções geradas a partir dos produtos carregados — cada lojista pode ter categorias/banhos diferentes.
   const categoryOptions = [...new Set(items.map((p) => p.categoria).filter(Boolean))].sort();
   const banhoOptions = [...new Set(items.map((p) => p.banho).filter(Boolean))].sort();
 
-  const filtered = items.filter((p) =>
-    p.disponibilidade === tab &&
-    (categoryFilter === "Todas" || p.categoria === categoryFilter) &&
-    (banhoFilter === "Todos" || p.banho === banhoFilter)
-  );
+  const filtered = items.filter((p) => {
+    if (tab === "Meus favoritos" ? !favorites.has(p.id) : p.disponibilidade !== tab) return false;
+    return (categoryFilter === "Todas" || p.categoria === categoryFilter) &&
+      (banhoFilter === "Todos" || p.banho === banhoFilter);
+  });
 
   function addToCart(p, personalizacao = "") {
     const key = personalizacao ? `${p.id}::${personalizacao}` : p.id;
@@ -180,7 +217,11 @@ export default function PublicCatalogPage() {
         {loading && <p style={{ textAlign: "center", fontFamily: "Manrope", color: "#8A968F" }}>Carregando catálogo...</p>}
         {error && <p style={{ textAlign: "center", fontFamily: "Manrope", color: "#B94A48" }}>Erro ao carregar catálogo: {error}</p>}
         {!loading && !error && filtered.length === 0 && (
-          <p style={{ textAlign: "center", fontFamily: "Manrope", color: "#8A968F" }}>Nenhuma peça encontrada com esses filtros.</p>
+          <p style={{ textAlign: "center", fontFamily: "Manrope", color: "#8A968F" }}>
+            {tab === "Meus favoritos"
+              ? "Você ainda não favoritou nenhuma peça — toque no coração das peças que você gostar!"
+              : "Nenhuma peça encontrada com esses filtros."}
+          </p>
         )}
         <div className="cc-catalog-grid">
           {filtered.map((p) => {
@@ -194,6 +235,17 @@ export default function PublicCatalogPage() {
                 }}>
                   {!p.photo_url && <ImagePlus size={28} color="#C9BFA6" />}
                   {p.promocao && <span style={{ position: "absolute", top: 10, left: 10, background: GOLD, color: "#fff", fontFamily: "Manrope", fontSize: 10.5, fontWeight: 800, padding: "3px 9px", borderRadius: 12 }}>PROMOÇÃO</span>}
+                  <button
+                    onClick={() => toggleFavorite(p.id)}
+                    title={favorites.has(p.id) ? "Remover dos favoritos" : "Adicionar aos favoritos"}
+                    style={{
+                      position: "absolute", top: 8, right: 8, width: 30, height: 30, borderRadius: "50%",
+                      background: "rgba(255,255,255,0.9)", border: "none", cursor: "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+                    }}
+                  >
+                    <Heart size={15} color={favorites.has(p.id) ? "#B5533D" : "#8A968F"} fill={favorites.has(p.id) ? "#B5533D" : "none"} />
+                  </button>
                 </div>
                 <p style={{ fontFamily: "Manrope", fontSize: 11, fontWeight: 700, color: GOLD, margin: 0, letterSpacing: ".04em" }}>{p.code}</p>
                 <p style={{ fontFamily: "Cormorant Garamond", fontSize: 19, fontWeight: 600, margin: "3px 0 6px", color: INK }}>{p.name}</p>
