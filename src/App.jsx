@@ -18,6 +18,7 @@ import { listSuppliers, createSupplier, updateSupplier, deleteSupplier } from ".
 import { listClients, createClient, updateClient, deleteClient } from "./services/clientes";
 import { listOrders, createOrder, updateOrder, updateOrderStatus, deleteOrder } from "./services/pedidos";
 import { listCashflow, createCashflowEntry, updateCashflowEntry, deleteCashflowEntry } from "./services/caixa";
+import { listPurchases, createPurchase } from "./services/compras";
 
 /* ============================================================
    CECÍLIA — Sistema de Gestão
@@ -647,6 +648,29 @@ function parseSheetNumber(val) {
   const cleaned = String(val).replace(/[^\d,.-]/g, "").replace(/\.(?=\d{3}(,|$))/g, "").replace(",", ".");
   const n = parseFloat(cleaned);
   return isNaN(n) ? 0 : n;
+}
+
+// Aceita data já como objeto Date (Excel formatado como data), texto dd/mm/aaaa,
+// texto aaaa-mm-dd, ou número de série do Excel — devolve sempre "aaaa-mm-dd".
+function parseSheetDate(val) {
+  if (!val) return "";
+  if (val instanceof Date) return val.toISOString().slice(0, 10);
+  const str = String(val).trim();
+  const br = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (br) {
+    const [, d, m, y] = br;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  const iso = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) {
+    const [, y, m, d] = iso;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  if (/^\d+(\.\d+)?$/.test(str)) {
+    const d = new Date(Math.round((parseFloat(str) - 25569) * 86400 * 1000));
+    return isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+  }
+  return "";
 }
 
 // Busca uma coluna pelo nome, ignorando acentos/maiúsculas e espaços extras no cabeçalho
@@ -1398,28 +1422,269 @@ function SupplierFields({ data, onChange }) {
 
 /* ---------------- Compras ---------------- */
 
-function ComprasView({ purchases, suppliers, products, onRegister }) {
-  const [form, setForm] = useState({ fornecedor: "", produtoId: "", data: "", frete: "", qtdPecas: "", valorTotal: "" });
+function matchSupplierByName(texto, suppliers) {
+  const alvo = normalizeText(texto);
+  return suppliers.find((s) => normalizeText(s.nome) === alvo);
+}
+
+// Tenta código exato primeiro (mais confiável), depois nome exato/aproximado.
+// Quando o nome bate com mais de um produto, devolve os candidatos em vez de
+// escolher sozinho — a tela mostra um seletor só com essas opções.
+function matchProductForPurchase(texto, products) {
+  const alvo = normalizeText(texto);
+  if (!alvo) return { productId: "", candidates: [] };
+  const byCode = products.find((p) => normalizeText(p.code || "") === alvo);
+  if (byCode) return { productId: byCode.id, candidates: [byCode] };
+  const nameMatches = products.filter((p) => normalizeText(p.name).includes(alvo) || alvo.includes(normalizeText(p.name)));
+  if (nameMatches.length === 1) return { productId: nameMatches[0].id, candidates: nameMatches };
+  return { productId: "", candidates: nameMatches };
+}
+
+function ImportComprasModal({ suppliers, products, onClose, onImported }) {
+  const [rows, setRows] = useState([]);
+  const [fileName, setFileName] = useState("");
+  const [parsing, setParsing] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [error, setError] = useState("");
+  const [results, setResults] = useState(null); // { success, failures: [{row, reason}] }
+
+  async function handleFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(""); setRows([]); setResults(null); setFileName(file.name); setParsing(true);
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+
+      const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+      const headerRowIndex = grid.findIndex((row) => row.some((cell) => normalizeText(cell) === "fornecedor"));
+      if (headerRowIndex === -1) {
+        setError(`Não encontrei uma coluna "Fornecedor" na aba "${sheetName}".`);
+        return;
+      }
+      const raw = XLSX.utils.sheet_to_json(sheet, { range: headerRowIndex, defval: "" });
+
+      const mapped = raw
+        .filter((r) => normalizeText(getSheetCell(r, "Fornecedor")) || normalizeText(getSheetCell(r, "Produto")))
+        .map((r, i) => {
+          const fornecedorTexto = String(getSheetCell(r, "Fornecedor") || "").trim();
+          const fornecedorMatch = matchSupplierByName(fornecedorTexto, suppliers);
+          const produtoTexto = String(getSheetCell(r, "Produto") || "").trim();
+          const { productId, candidates } = matchProductForPurchase(produtoTexto, products);
+          return {
+            _key: i,
+            fornecedorTexto,
+            fornecedorId: fornecedorMatch ? fornecedorMatch.id : "",
+            produtoTexto,
+            produtoId: productId,
+            produtoCandidates: candidates,
+            data: parseSheetDate(getSheetCell(r, "Data")),
+            qtdPecas: parseSheetNumber(getSheetCell(r, "Quantidade de peças")),
+            valorTotal: parseSheetNumber(getSheetCell(r, "Valor total")),
+            frete: parseSheetNumber(getSheetCell(r, "Frete")),
+          };
+        });
+
+      if (mapped.length === 0) setError(`Nenhuma linha com Fornecedor/Produto preenchidos foi encontrada na aba "${sheetName}".`);
+      setRows(mapped);
+    } catch (err) {
+      setError("Erro ao ler o arquivo: " + err.message);
+    } finally {
+      setParsing(false);
+    }
+  }
+
+  function setRowFornecedor(key, fornecedorId) {
+    setRows((prev) => prev.map((r) => (r._key === key ? { ...r, fornecedorId } : r)));
+  }
+  function setRowProduto(key, produtoId) {
+    setRows((prev) => prev.map((r) => (r._key === key ? { ...r, produtoId } : r)));
+  }
+
+  const pendingCount = rows.filter((r) => !r.fornecedorId || !r.produtoId).length;
+
+  // Insere uma compra de cada vez (não em lote) — assim cada linha aciona o
+  // trigger apply_purchase() na ordem certa (o custo médio de cada leva depende
+  // do estoque já atualizado pela leva anterior) e uma falha numa linha não
+  // derruba as outras.
+  async function handleConfirm() {
+    if (rows.length === 0 || pendingCount > 0) {
+      setError("Escolha o fornecedor e o produto de todas as linhas destacadas antes de confirmar.");
+      return;
+    }
+    setImporting(true);
+    setError("");
+    let success = 0;
+    const failures = [];
+    for (const r of rows) {
+      try {
+        await createPurchase(r);
+        success++;
+      } catch (err) {
+        failures.push({ row: r, reason: err.message });
+      }
+    }
+    setImporting(false);
+    setResults({ success, failures });
+    onImported({ success, failures });
+  }
+
+  return (
+    <Modal title="Importar planilha de compras" onClose={onClose} wide>
+      {!results && (
+        <>
+          <Field label="Arquivo (.xlsx)">
+            <input type="file" accept=".xlsx" onChange={handleFile} style={{ fontFamily: "Manrope", fontSize: 12.5 }} />
+          </Field>
+
+          {parsing && <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A968F", marginTop: 10 }}>Lendo planilha...</p>}
+          {error && <p style={{ fontFamily: "Manrope", fontSize: 12.5, color: "#B94A48", marginTop: 10 }}>{error}</p>}
+
+          {rows.length > 0 && (
+            <>
+              <p style={{ fontFamily: "Manrope", fontSize: 12.5, color: "#5B6B63", margin: "16px 0 10px" }}>
+                <strong>{fileName}</strong> — {rows.length} linhas encontradas
+                {pendingCount > 0 ? `, ${pendingCount} precisam de fornecedor e/ou produto (destacadas abaixo)` : ", todas reconhecidas"}.
+              </p>
+              <div style={{ maxHeight: 340, overflowY: "auto", border: "1px solid #EFEBE0", borderRadius: 12 }}>
+                <Table
+                  columns={["Fornecedor", "Produto", "Data", "Peças", "Valor total", "Frete"]}
+                  rows={rows}
+                  renderRow={(r) => (
+                    <tr key={r._key} style={{ background: (r.fornecedorId && r.produtoId) ? "transparent" : "#FBEFEF" }}>
+                      <td style={td}>
+                        {r.fornecedorId ? (
+                          <Badge tone="green">{suppliers.find((s) => s.id === r.fornecedorId)?.nome}</Badge>
+                        ) : (
+                          <Select value={r.fornecedorId} onChange={(e) => setRowFornecedor(r._key, e.target.value)} style={{ borderColor: "#D98C8C", minWidth: 170 }}>
+                            <option value="">"{r.fornecedorTexto || "—"}" — cadastre ou escolha...</option>
+                            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                          </Select>
+                        )}
+                      </td>
+                      <td style={td}>
+                        {r.produtoId ? (
+                          <Badge tone="green">{products.find((p) => p.id === r.produtoId)?.code} — {products.find((p) => p.id === r.produtoId)?.name}</Badge>
+                        ) : (
+                          <Select value={r.produtoId} onChange={(e) => setRowProduto(r._key, e.target.value)} style={{ borderColor: "#D98C8C", minWidth: 190 }}>
+                            <option value="">"{r.produtoTexto || "—"}" — escolher...</option>
+                            {(r.produtoCandidates.length > 0 ? r.produtoCandidates : products).map((p) => <option key={p.id} value={p.id}>{p.code} — {p.name}</option>)}
+                          </Select>
+                        )}
+                      </td>
+                      <td style={td}>{r.data ? new Date(r.data + "T00:00").toLocaleDateString("pt-BR") : "—"}</td>
+                      <td style={td}>{r.qtdPecas}</td>
+                      <td style={td}>{money(r.valorTotal)}</td>
+                      <td style={td}>{money(r.frete)}</td>
+                    </tr>
+                  )}
+                />
+              </div>
+            </>
+          )}
+
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
+            <GhostButton onClick={onClose}>Cancelar</GhostButton>
+            <GoldButton onClick={handleConfirm} disabled={rows.length === 0 || importing || pendingCount > 0}>
+              {importing ? "Importando..." : `Confirmar importação (${rows.length})`}
+            </GoldButton>
+          </div>
+        </>
+      )}
+
+      {results && (
+        <div>
+          <p style={{ fontFamily: "Manrope", fontSize: 14, color: GREEN, fontWeight: 700, marginBottom: 10 }}>
+            {results.success} compra{results.success === 1 ? "" : "s"} registrada{results.success === 1 ? "" : "s"} com sucesso.
+          </p>
+          {results.failures.length > 0 && (
+            <>
+              <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#B94A48", fontWeight: 700, marginBottom: 8 }}>
+                {results.failures.length} linha{results.failures.length === 1 ? "" : "s"} falhou{results.failures.length === 1 ? "" : "ram"}:
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+                {results.failures.map((f, i) => (
+                  <div key={i} style={{ background: "#FBEFEF", borderRadius: 8, padding: "8px 12px", fontFamily: "Manrope", fontSize: 12.5, color: "#8A4530" }}>
+                    <strong>{f.row.produtoTexto || f.row.fornecedorTexto || `Linha ${i + 1}`}</strong>: {f.reason}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+            <GoldButton onClick={onClose}>Fechar</GoldButton>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function ComprasView({ purchases, setPurchases, suppliers, products, setProducts, setCashflow, loading, loadError }) {
+  const [form, setForm] = useState({ fornecedorId: "", produtoId: "", data: "", frete: "", qtdPecas: "", valorTotal: "" });
+  const [saving, setSaving] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importMsg, setImportMsg] = useState("");
   const freteUnit = form.qtdPecas ? (parseFloat(form.frete || 0) / parseInt(form.qtdPecas)).toFixed(2) : "0.00";
   const produtoSelecionado = products.find((p) => String(p.id) === String(form.produtoId));
 
-  function submit(e) {
+  async function refreshAfterPurchase() {
+    const [freshPurchases, freshProducts, freshCashflow] = await Promise.all([listPurchases(), listProducts(), listCashflow()]);
+    setPurchases(freshPurchases);
+    setProducts(freshProducts);
+    setCashflow(freshCashflow);
+  }
+
+  async function submit(e) {
     e.preventDefault();
-    onRegister({ ...form, freteUnit: parseFloat(freteUnit) });
-    setForm({ fornecedor: "", produtoId: "", data: "", frete: "", qtdPecas: "", valorTotal: "" });
+    setSaving(true);
+    try {
+      await createPurchase(form);
+      await refreshAfterPurchase();
+      setForm({ fornecedorId: "", produtoId: "", data: "", frete: "", qtdPecas: "", valorTotal: "" });
+    } catch (err) {
+      alert("Erro ao registrar compra: " + err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleImported(result) {
+    await refreshAfterPurchase();
+    setImportMsg(`${result.success} compra${result.success === 1 ? "" : "s"} importada${result.success === 1 ? "" : "s"} com sucesso.${result.failures.length > 0 ? ` ${result.failures.length} falharam.` : ""}`);
   }
 
   return (
     <div>
-      <SectionTitle title="Compras" subtitle="Registre entradas de mercadoria — o estoque e o custo médio são atualizados automaticamente" />
+      <SectionTitle
+        title="Compras"
+        subtitle="Registre entradas de mercadoria — o estoque e o custo médio são atualizados automaticamente"
+        action={
+          <GhostButton icon={Upload} onClick={() => { setImportMsg(""); setImportOpen(true); }} disabled={loading || suppliers.length === 0 || products.length === 0}>
+            Importar planilha
+          </GhostButton>
+        }
+      />
+      {loadError && (
+        <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#B94A48", marginBottom: 14 }}>
+          Erro ao carregar compras: {loadError}
+        </p>
+      )}
+      {importMsg && (
+        <p style={{ fontFamily: "Manrope", fontSize: 13, color: GREEN, marginBottom: 14, fontWeight: 600 }}>
+          {importMsg}
+        </p>
+      )}
       <div className="cc-two-col">
         <div className="cc-card" style={{ padding: 20 }}>
           <p className="cc-chart-title">Nova compra</p>
           <form onSubmit={submit} className="cc-form-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
             <Field label="Fornecedor" span={2}>
-              <Select value={form.fornecedor} onChange={(e) => setForm({ ...form, fornecedor: e.target.value })} required>
+              <Select value={form.fornecedorId} onChange={(e) => setForm({ ...form, fornecedorId: e.target.value })} required>
                 <option value="">Selecione...</option>
-                {suppliers.map((s) => <option key={s.id}>{s.nome}</option>)}
+                {suppliers.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
               </Select>
             </Field>
             <Field label="Produto reabastecido" span={2}>
@@ -1439,29 +1704,37 @@ function ComprasView({ purchases, suppliers, products, onRegister }) {
               </div>
             )}
             <div style={{ gridColumn: "1 / -1", marginTop: 6 }}>
-              <GoldButton type="submit" full>Registrar compra</GoldButton>
+              <GoldButton type="submit" full disabled={saving}>{saving ? "Registrando..." : "Registrar compra"}</GoldButton>
             </div>
           </form>
         </div>
 
         <div className="cc-card" style={{ padding: 0 }}>
           <p className="cc-chart-title" style={{ padding: "20px 20px 0" }}>Histórico de compras</p>
-          <Table
-            columns={["Fornecedor", "Produto", "Data", "Peças", "Total", "Frete/peça"]}
-            rows={purchases}
-            renderRow={(p) => (
-              <tr key={p.id}>
-                <td style={td}>{p.fornecedor}</td>
-                <td style={td}>{p.produtoNome || "—"}</td>
-                <td style={td}>{p.data ? new Date(p.data + "T00:00").toLocaleDateString("pt-BR") : "—"}</td>
-                <td style={td}>{p.qtdPecas}</td>
-                <td style={td}>{money(parseFloat(p.valorTotal))}</td>
-                <td style={td}>{money(p.freteUnit)}</td>
-              </tr>
-            )}
-          />
+          {loading ? (
+            <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A968F", padding: 20 }}>Carregando compras...</p>
+          ) : (
+            <Table
+              columns={["Fornecedor", "Produto", "Data", "Peças", "Total", "Frete/peça"]}
+              rows={purchases}
+              renderRow={(p) => (
+                <tr key={p.id}>
+                  <td style={td}>{p.fornecedor}</td>
+                  <td style={td}>{p.produtoCode ? `${p.produtoCode} — ` : ""}{p.produtoNome || "—"}</td>
+                  <td style={td}>{p.data ? new Date(p.data + "T00:00").toLocaleDateString("pt-BR") : "—"}</td>
+                  <td style={td}>{p.qtdPecas}</td>
+                  <td style={td}>{money(p.valorTotal)}</td>
+                  <td style={td}>{money(p.freteUnit)}</td>
+                </tr>
+              )}
+            />
+          )}
         </div>
       </div>
+
+      {importOpen && (
+        <ImportComprasModal suppliers={suppliers} products={products} onClose={() => setImportOpen(false)} onImported={handleImported} />
+      )}
     </div>
   );
 }
@@ -2218,7 +2491,7 @@ export default function App() {
     getCurrentProfile().then(setProfile).catch((err) => console.error("Erro ao carregar perfil:", err));
   }, [loggedIn]);
 
-  // Carrega produtos, categorias, fornecedores, clientes, pedidos e caixa reais do Supabase assim que loga
+  // Carrega produtos, categorias, fornecedores, clientes, pedidos, caixa e compras reais do Supabase assim que loga
   useEffect(() => {
     if (!loggedIn) return;
     setProductsLoading(true);
@@ -2230,46 +2503,20 @@ export default function App() {
       listClients(),
       listOrders(),
       listCashflow(),
+      listPurchases(),
     ])
-      .then(([productRows, categoryRows, supplierRows, clientRows, orderRows, cashflowRows]) => {
+      .then(([productRows, categoryRows, supplierRows, clientRows, orderRows, cashflowRows, purchaseRows]) => {
         setProducts(productRows);
         setCategories(categoryRows);
         setSuppliers(supplierRows);
         setClients(clientRows);
         setOrders(orderRows);
         setCashflow(cashflowRows);
+        setPurchases(purchaseRows);
       })
       .catch((err) => setProductsError(err.message))
       .finally(() => setProductsLoading(false));
   }, [loggedIn]);
-
-  function addCashflow(desc, valor) {
-    setCashflow((prev) => [{ id: Date.now() + Math.random(), tipo: valor >= 0 ? "Entrada" : "Saída", desc, valor, data: new Date().toISOString().slice(0, 10) }, ...prev]);
-  }
-
-  // Compra registrada -> soma ao estoque, recalcula custo médio ponderado do produto e lança saída no caixa
-  function registerPurchase(form) {
-    const qtd = parseInt(form.qtdPecas) || 0;
-    const valorTotal = parseFloat(form.valorTotal) || 0;
-    const frete = parseFloat(form.frete) || 0;
-    const custoNovaLeva = qtd ? (valorTotal + frete) / qtd : 0;
-    const produto = products.find((p) => String(p.id) === String(form.produtoId));
-
-    setProducts((prev) => prev.map((p) => {
-      if (String(p.id) !== String(form.produtoId)) return p;
-      const estoqueAtual = p.quantidade || 0;
-      const custoAtual = p.custoTotal || 0;
-      const novoEstoque = estoqueAtual + qtd;
-      // custo médio ponderado entre o estoque existente e a nova leva
-      const custoMedio = novoEstoque > 0 ? ((estoqueAtual * custoAtual) + (qtd * custoNovaLeva)) / novoEstoque : custoNovaLeva;
-      const lucro = (p.precoSugerido || 0) - custoMedio;
-      const margem = custoMedio ? Math.round((lucro / custoMedio) * 100) : 0;
-      return { ...p, quantidade: novoEstoque, custoTotal: custoMedio, lucro, margem };
-    }));
-
-    setPurchases((prev) => [{ ...form, id: Date.now(), produtoNome: produto ? produto.name : "" }, ...prev]);
-    addCashflow(`Compra ${produto ? produto.code : ""} — ${form.fornecedor}`, -(valorTotal + frete));
-  }
 
   // Muda só o status do pedido — baixar estoque, creditar cliente e lançar no
   // caixa (ou estornar, se cancelado) acontece sozinho no banco via trigger.
@@ -2368,7 +2615,7 @@ export default function App() {
           {active === "produtos" && <ProdutosView products={products} setProducts={setProducts} suppliers={suppliers} categories={categories} loading={productsLoading} loadError={productsError} />}
           {active === "clientes" && <ClientesView clients={clients} setClients={setClients} loading={productsLoading} loadError={productsError} />}
           {active === "fornecedores" && <FornecedoresView suppliers={suppliers} setSuppliers={setSuppliers} loading={productsLoading} loadError={productsError} />}
-          {active === "compras" && <ComprasView purchases={purchases} suppliers={suppliers} products={products} onRegister={registerPurchase} />}
+          {active === "compras" && <ComprasView purchases={purchases} setPurchases={setPurchases} suppliers={suppliers} products={products} setProducts={setProducts} setCashflow={setCashflow} loading={productsLoading} loadError={productsError} />}
           {active === "estoque" && <EstoqueView products={products} loading={productsLoading} loadError={productsError} />}
           {active === "pedidos" && <PedidosView orders={orders} setOrders={setOrders} clients={clients} products={products} onStatusChange={handleOrderStatusChange} loading={productsLoading} loadError={productsError} />}
           {active === "precificacao" && <PrecificacaoView />}
