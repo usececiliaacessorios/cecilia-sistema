@@ -118,6 +118,24 @@ export async function updateProduct(id, form) {
   return data;
 }
 
+// Atualização mínima usada pelo simulador de precificação (aplicar em massa)
+// — só mexe em preço/lucro/margem, para não arriscar sobrescrever outros
+// campos do produto com updateProduct() num loop.
+export async function updateProductPrice(id, precoSugerido, custoTotal) {
+  const preco = Number(precoSugerido) || 0;
+  const custo = Number(custoTotal) || 0;
+  const lucro = preco - custo;
+  const margem = custo ? Math.round((lucro / custo) * 100) : 0;
+  const { data, error } = await supabase
+    .from("products")
+    .update({ preco_sugerido: preco, lucro, margem })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
 // Cria vários produtos de uma vez (importação de planilha). Cada linha já
 // deve trazer categoryId resolvido. O código (BR0001...) é gerado sozinho
 // pelo banco para cada linha.

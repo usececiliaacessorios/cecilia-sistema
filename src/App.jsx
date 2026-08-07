@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import * as XLSX from "xlsx";
 import { login, getCurrentUser, getCurrentProfile, updateCurrentProfile, onAuthChange, requestPasswordReset } from "./services/auth";
-import { listProducts, listCategories, createProduct, updateProduct, deleteProduct, bulkDeleteProducts, uploadProductPhoto, bulkCreateProducts } from "./services/produtos";
+import { listProducts, listCategories, createProduct, updateProduct, updateProductPrice, deleteProduct, bulkDeleteProducts, uploadProductPhoto, bulkCreateProducts } from "./services/produtos";
 import { listSuppliers, createSupplier, updateSupplier, deleteSupplier } from "./services/fornecedores";
 import { listClients, createClient, updateClient, deleteClient } from "./services/clientes";
 import { listOrders, createOrder, updateOrder, updateOrderStatus, deleteOrder } from "./services/pedidos";
@@ -21,6 +21,9 @@ import { listCashflow, createCashflowEntry, updateCashflowEntry, deleteCashflowE
 import { listPurchases, createPurchase } from "./services/compras";
 import { listWishlistCounts } from "./services/wishlist";
 import { listVisits } from "./services/visitas";
+import { getSettings, updateSettings } from "./services/settings";
+import { listGoals, setGoalForMonth } from "./services/metas";
+import { listAccountsPayable, createAccountPayable, updateAccountPayable, deleteAccountPayable, markAccountAsPaid } from "./services/contasPagar";
 
 /* ============================================================
    CECÍLIA — Sistema de Gestão
@@ -460,10 +463,12 @@ function EmptyChartState({ message }) {
   );
 }
 
-function Dashboard({ products, orders, cashflow, visits }) {
+function Dashboard({ products, orders, cashflow, visits, financialGoals }) {
   const now = new Date();
   const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const isCurrentMonth = (dateStr) => !!dateStr && dateStr.slice(0, 7) === currentMonthKey;
+
+  const metaMes = financialGoals.find((g) => g.mes === now.getMonth() + 1 && g.ano === now.getFullYear());
 
   const visitsThisMonth = visits.filter((v) => isCurrentMonth(v.criado_em));
   const visitasCatalogoMes = visitsThisMonth.length;
@@ -527,9 +532,30 @@ function Dashboard({ products, orders, cashflow, visits }) {
 
   const mesAtualLabel = now.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
 
+  const progressoMeta = metaMes ? Math.min(100, Math.round((faturamentoMes / metaMes.valor_meta) * 100)) : 0;
+
   return (
     <div>
       <SectionTitle title="Visão geral" subtitle={`Resumo do desempenho da Cecília — ${mesAtualLabel}`} />
+
+      {metaMes ? (
+        <div className="cc-card" style={{ padding: "16px 20px", marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
+            <p style={{ fontFamily: "Manrope", fontSize: 12.5, fontWeight: 700, color: "#5B6B63", margin: 0 }}>Meta de faturamento do mês</p>
+            <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#7A897F", margin: 0 }}>
+              {money(faturamentoMes)} de {money(metaMes.valor_meta)} — <strong style={{ color: GREEN }}>{progressoMeta}% da meta</strong>
+            </p>
+          </div>
+          <div style={{ background: "#F0ECE0", borderRadius: 10, height: 10, overflow: "hidden" }}>
+            <div style={{ width: `${progressoMeta}%`, height: "100%", background: GOLD, borderRadius: 10, transition: "width .4s ease" }} />
+          </div>
+        </div>
+      ) : (
+        <p style={{ fontFamily: "Manrope", fontSize: 12.5, color: "#96A39D", marginBottom: 20 }}>
+          Defina sua meta de faturamento em Configurações → Financeiro para acompanhar o progresso do mês aqui.
+        </p>
+      )}
+
       <div className="cc-grid-stats">
         <StatCard icon={Wallet} label="Faturamento do mês" value={money(faturamentoMes)} accent={GREEN} />
         <StatCard icon={TrendingUp} label="Lucro do mês" value={money(lucroMes)} accent={GOLD} />
@@ -2034,7 +2060,7 @@ function OrderForm({ data, clients, products, onSave, saving, onCancel }) {
 
 /* ---------------- Precificação ---------------- */
 
-function PrecificacaoView() {
+function PrecificacaoView({ products, setProducts, settings }) {
   const [v, setV] = useState({
     peca: 25, frete: 2, embalagem: 3, sacola: 1.5, etiqueta: 0.5,
     cartao: 0, maquininha: 3.5, impostos: 6, comissao: 0, margem: 100,
@@ -2054,6 +2080,59 @@ function PrecificacaoView() {
     ["sacola", "Sacola (R$)"], ["etiqueta", "Etiqueta (R$)"], ["cartao", "Cartão/tag (R$)"],
     ["maquininha", "Taxa da maquininha (%)"], ["impostos", "Impostos (%)"], ["comissao", "Comissão (%)"], ["margem", "Margem padrão (%)"],
   ];
+
+  // Simulador "e se" — pré-preenchido com os valores salvos em Configurações,
+  // assim que eles chegam (a tela pode renderizar antes do fetch terminar).
+  const [simMargem, setSimMargem] = useState(100);
+  const [simMaquininha, setSimMaquininha] = useState(3.5);
+  const [simInitialized, setSimInitialized] = useState(false);
+  const [confirmApplyOpen, setConfirmApplyOpen] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [applyMsg, setApplyMsg] = useState("");
+
+  useEffect(() => {
+    if (settings && !simInitialized) {
+      setSimMargem(settings.margem_padrao ?? 100);
+      setSimMaquininha(settings.taxa_maquininha ?? 3.5);
+      setSimInitialized(true);
+    }
+  }, [settings, simInitialized]);
+
+  const taxasSimuladas = simMaquininha + (settings?.impostos ?? 0) + (settings?.comissao ?? 0);
+  const simulatedProducts = products.map((p) => {
+    const custo = p.custoTotal || 0;
+    const precoSimulado = taxasSimuladas < 100 ? custo * (1 + simMargem / 100) / (1 - taxasSimuladas / 100) : 0;
+    const diferenca = precoSimulado - (p.precoSugerido || 0);
+    const diferencaPercent = p.precoSugerido ? (diferenca / p.precoSugerido) * 100 : 0;
+    return { ...p, precoSimulado, diferenca, diferencaPercent };
+  });
+
+  async function handleApply() {
+    setApplying(true);
+    setApplyMsg("");
+    let success = 0;
+    const failures = [];
+    for (const p of simulatedProducts) {
+      try {
+        await updateProductPrice(p.id, p.precoSimulado, p.custoTotal);
+        success++;
+      } catch (err) {
+        failures.push(p.name);
+      }
+    }
+    try {
+      const fresh = await listProducts();
+      setProducts(fresh);
+    } catch (err) {
+      // a lista pode falhar ao rebuscar sem que a aplicação em si tenha falhado
+    }
+    setApplying(false);
+    setConfirmApplyOpen(false);
+    setApplyMsg(
+      `${success} produto${success === 1 ? "" : "s"} atualizado${success === 1 ? "" : "s"} com o novo preço.` +
+      (failures.length > 0 ? ` ${failures.length} falharam: ${failures.join(", ")}.` : "")
+    );
+  }
 
   return (
     <div>
@@ -2083,6 +2162,72 @@ function PrecificacaoView() {
           ))}
         </div>
       </div>
+
+      <div style={{ marginTop: 36 }}>
+        <p className="cc-chart-title">Simular impacto em todos os produtos</p>
+        <div className="cc-card" style={{ padding: 20, marginBottom: 16 }}>
+          <div className="cc-form-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+            <Field label="Nova margem padrão (%)">
+              <TextInput type="number" step="0.1" value={simMargem} onChange={(e) => setSimMargem(parseFloat(e.target.value) || 0)} />
+            </Field>
+            <Field label="Nova taxa de maquininha (%)">
+              <TextInput type="number" step="0.1" value={simMaquininha} onChange={(e) => setSimMaquininha(parseFloat(e.target.value) || 0)} />
+            </Field>
+          </div>
+          <p style={{ fontFamily: "Manrope", fontSize: 12, color: "#8A968F", margin: "10px 0 0" }}>
+            Comissão ({settings?.comissao ?? 0}%) e impostos ({settings?.impostos ?? 0}%) usados na simulação são os valores atuais salvos em Configurações.
+          </p>
+        </div>
+
+        <div className="cc-card" style={{ padding: 0 }}>
+          {products.length === 0 ? (
+            <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A968F", padding: 20 }}>Nenhum produto cadastrado ainda.</p>
+          ) : (
+            <div style={{ maxHeight: 380, overflowY: "auto" }}>
+              <Table
+                columns={["Produto", "Preço atual", "Preço simulado", "Diferença", "Diferença %"]}
+                rows={simulatedProducts}
+                renderRow={(p) => (
+                  <tr key={p.id}>
+                    <td style={td}>{p.name}</td>
+                    <td style={td}>{money(p.precoSugerido)}</td>
+                    <td style={{ ...td, fontWeight: 700 }}>{money(p.precoSimulado)}</td>
+                    <td style={{ ...td, fontWeight: 700, color: p.diferenca >= 0 ? GREEN : "#B5533D" }}>
+                      {p.diferenca >= 0 ? "+" : ""}{money(p.diferenca)}
+                    </td>
+                    <td style={{ ...td, fontWeight: 700, color: p.diferenca >= 0 ? GREEN : "#B5533D" }}>
+                      {p.diferenca >= 0 ? "+" : ""}{p.diferencaPercent.toFixed(1)}%
+                    </td>
+                  </tr>
+                )}
+              />
+            </div>
+          )}
+        </div>
+
+        {applyMsg && (
+          <p style={{ fontFamily: "Manrope", fontSize: 13, color: GREEN, fontWeight: 600, marginTop: 14 }}>{applyMsg}</p>
+        )}
+
+        <div style={{ marginTop: 16 }}>
+          <GoldButton onClick={() => setConfirmApplyOpen(true)} disabled={products.length === 0}>
+            Aplicar a todos os produtos
+          </GoldButton>
+        </div>
+      </div>
+
+      {confirmApplyOpen && (
+        <Modal title="Aplicar simulação a todos os produtos" onClose={() => !applying && setConfirmApplyOpen(false)}>
+          <p style={{ fontFamily: "Manrope", fontSize: 13.5, color: INK, lineHeight: 1.6, margin: 0 }}>
+            Isso vai atualizar o <strong>preço sugerido</strong> de <strong>{products.length}</strong> produto{products.length === 1 ? "" : "s"} com base
+            nesta simulação (margem {simMargem}%, maquininha {simMaquininha}%). Os preços atuais serão substituídos e essa ação não pode ser desfeita automaticamente.
+          </p>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
+            <GhostButton onClick={() => setConfirmApplyOpen(false)} disabled={applying}>Cancelar</GhostButton>
+            <GoldButton onClick={handleApply} disabled={applying}>{applying ? "Aplicando..." : "Sim, aplicar a todos"}</GoldButton>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -2110,7 +2255,139 @@ function origemLabel(origem) {
   return origem || "—";
 }
 
-function CaixaView({ cashflow, setCashflow, orders, setOrders, clients, products, onStatusChange, loading, loadError }) {
+function statusContaPagar(c) {
+  if (c.pago) return { label: "Paga", tone: "green" };
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  const venc = new Date(c.vencimento + "T00:00");
+  const diffDays = Math.round((venc - hoje) / 86400000);
+  if (diffDays < 0) return { label: "Vencida", tone: "red" };
+  if (diffDays <= 3) return { label: "Vence em breve", tone: "red" };
+  return { label: "Em aberto", tone: "gray" };
+}
+
+function ContaPagarForm({ data, suppliers, onSave, saving, onCancel }) {
+  const [form, setForm] = useState(data);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); onSave(form); }}>
+      <div className="cc-form-grid">
+        <Field label="Descrição" span={3}><TextInput required value={form.descricao} onChange={set("descricao")} placeholder="ex: Aluguel de agosto" /></Field>
+        <Field label="Valor (R$)"><TextInput type="number" step="0.01" min="0" required value={form.valor} onChange={set("valor")} /></Field>
+        <Field label="Vencimento"><TextInput type="date" required value={form.vencimento} onChange={set("vencimento")} /></Field>
+        <Field label="Fornecedor (opcional)">
+          <Select value={form.fornecedorId || ""} onChange={set("fornecedorId")}>
+            <option value="">Nenhum</option>
+            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+          </Select>
+        </Field>
+      </div>
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
+        <GhostButton onClick={onCancel} disabled={saving}>Cancelar</GhostButton>
+        <GoldButton type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar conta"}</GoldButton>
+      </div>
+    </form>
+  );
+}
+
+function ContasPagarPanel({ accountsPayable, setAccountsPayable, suppliers, setCashflow }) {
+  const [modal, setModal] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  function openNew() {
+    setModal({ mode: "new", data: { descricao: "", valor: "", vencimento: "", fornecedorId: "" } });
+  }
+  function openEdit(c) {
+    if (c.pago) { alert("Essa conta já foi paga e não pode ser editada."); return; }
+    setModal({ mode: "edit", data: { ...c } });
+  }
+
+  async function save(data) {
+    setSaving(true);
+    try {
+      if (modal.mode === "new") await createAccountPayable(data);
+      else await updateAccountPayable(data.id, data);
+      const fresh = await listAccountsPayable();
+      setAccountsPayable(fresh);
+      setModal(null);
+    } catch (err) {
+      alert("Erro ao salvar conta: " + err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove(c) {
+    if (c.pago) { alert("Essa conta já foi paga e não pode ser excluída."); return; }
+    if (!window.confirm(`Tem certeza que deseja excluir "${c.descricao}"? Essa ação não pode ser desfeita.`)) return;
+    try {
+      await deleteAccountPayable(c.id);
+      setAccountsPayable((prev) => prev.filter((x) => x.id !== c.id));
+    } catch (err) {
+      alert("Erro ao excluir conta: " + err.message);
+    }
+  }
+
+  async function markPaid(c) {
+    if (!window.confirm(`Marcar "${c.descricao}" (${money(c.valor)}) como paga? Isso lança uma saída no fluxo de caixa.`)) return;
+    try {
+      await markAccountAsPaid(c);
+      const [freshAccounts, freshCashflow] = await Promise.all([listAccountsPayable(), listCashflow()]);
+      setAccountsPayable(freshAccounts);
+      setCashflow(freshCashflow);
+    } catch (err) {
+      alert("Erro ao marcar como paga: " + err.message);
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+        <p className="cc-chart-title" style={{ margin: 0 }}>Contas a pagar</p>
+        <GhostButton icon={Plus} onClick={openNew}>Nova conta</GhostButton>
+      </div>
+      <div className="cc-card" style={{ padding: 0 }}>
+        {accountsPayable.length === 0 ? (
+          <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A968F", padding: 20 }}>Nenhuma conta cadastrada.</p>
+        ) : (
+          <Table
+            columns={["Descrição", "Fornecedor", "Vencimento", "Valor", "Status", ""]}
+            rows={accountsPayable}
+            renderRow={(c) => {
+              const status = statusContaPagar(c);
+              return (
+                <tr key={c.id}>
+                  <td style={td}>{c.descricao}</td>
+                  <td style={td}>{c.fornecedor || "—"}</td>
+                  <td style={td}>{new Date(c.vencimento + "T00:00").toLocaleDateString("pt-BR")}</td>
+                  <td style={td}>{money(c.valor)}</td>
+                  <td style={td}><Badge tone={status.tone}>{status.label}</Badge></td>
+                  <td style={td}>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {!c.pago && (
+                        <button onClick={() => markPaid(c)} className="cc-icon-btn" title="Marcar como paga"><CheckCircle2 size={14} /></button>
+                      )}
+                      <button onClick={() => openEdit(c)} className="cc-icon-btn"><Pencil size={14} /></button>
+                      <button onClick={() => remove(c)} className="cc-icon-btn"><Trash2 size={14} /></button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            }}
+          />
+        )}
+      </div>
+
+      {modal && (
+        <Modal title={modal.mode === "new" ? "Nova conta a pagar" : "Editar conta a pagar"} onClose={() => setModal(null)}>
+          <ContaPagarForm data={modal.data} suppliers={suppliers} onSave={save} saving={saving} onCancel={() => setModal(null)} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function CaixaView({ cashflow, setCashflow, orders, setOrders, clients, products, onStatusChange, accountsPayable, setAccountsPayable, suppliers, loading, loadError }) {
   const [period, setPeriod] = useState("Mês");
   const [modal, setModal] = useState(null); // {mode:'new'|'edit', data}
   const [saving, setSaving] = useState(false);
@@ -2228,6 +2505,10 @@ function CaixaView({ cashflow, setCashflow, orders, setOrders, clients, products
           <CashflowForm data={modal.data} onSave={handleSave} saving={saving} onCancel={() => setModal(null)} />
         </Modal>
       )}
+
+      <div style={{ marginTop: 36 }}>
+        <ContasPagarPanel accountsPayable={accountsPayable} setAccountsPayable={setAccountsPayable} suppliers={suppliers} setCashflow={setCashflow} />
+      </div>
 
       <div style={{ marginTop: 36 }}>
         <p className="cc-chart-title">Pedidos recentes</p>
@@ -2415,7 +2696,77 @@ function CatalogoView({ products }) {
 
 /* ---------------- Configurações ---------------- */
 
-function ConfiguracoesView() {
+function FinanceiroTab({ settings, setSettings, financialGoals, setFinancialGoals }) {
+  const now = new Date();
+  const mes = now.getMonth() + 1;
+  const ano = now.getFullYear();
+  const metaAtual = financialGoals.find((g) => g.mes === mes && g.ano === ano);
+
+  const [form, setForm] = useState({
+    margem_padrao: settings?.margem_padrao ?? 100,
+    taxa_maquininha: settings?.taxa_maquininha ?? 3.5,
+    comissao: settings?.comissao ?? 0,
+    impostos: settings?.impostos ?? 6,
+    meta: metaAtual?.valor_meta ?? "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  async function handleSave() {
+    setSaving(true);
+    setMsg("");
+    try {
+      const updated = await updateSettings({
+        margem_padrao: parseFloat(form.margem_padrao) || 0,
+        taxa_maquininha: parseFloat(form.taxa_maquininha) || 0,
+        comissao: parseFloat(form.comissao) || 0,
+        impostos: parseFloat(form.impostos) || 0,
+      });
+      setSettings(updated);
+
+      if (form.meta !== "") {
+        const goal = await setGoalForMonth(mes, ano, parseFloat(form.meta) || 0);
+        setFinancialGoals((prev) => [...prev.filter((g) => !(g.mes === mes && g.ano === ano)), goal]);
+      }
+      setMsg("Alterações salvas com sucesso!");
+    } catch (err) {
+      setMsg("Erro ao salvar: " + err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const mesLabel = now.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+
+  return (
+    <div>
+      <p className="cc-form-group-title" style={{ marginTop: 0 }}>Meta de faturamento</p>
+      <div className="cc-form-grid">
+        <Field label={`Meta para ${mesLabel} (R$)`}>
+          <TextInput type="number" step="0.01" min="0" value={form.meta} onChange={set("meta")} placeholder="ex: 9000" />
+        </Field>
+      </div>
+
+      <p className="cc-form-group-title">Custos e taxas padrão</p>
+      <div className="cc-form-grid">
+        <Field label="Margem padrão (%)"><TextInput type="number" value={form.margem_padrao} onChange={set("margem_padrao")} /></Field>
+        <Field label="Taxa da maquininha (%)"><TextInput type="number" value={form.taxa_maquininha} onChange={set("taxa_maquininha")} /></Field>
+        <Field label="Comissão (%)"><TextInput type="number" value={form.comissao} onChange={set("comissao")} /></Field>
+        <Field label="Impostos (%)"><TextInput type="number" value={form.impostos} onChange={set("impostos")} /></Field>
+      </div>
+
+      {msg && (
+        <p style={{ fontFamily: "Manrope", fontSize: 12.5, color: msg.startsWith("Erro") ? "#B94A48" : GREEN, marginTop: 14 }}>{msg}</p>
+      )}
+      <div style={{ marginTop: 16 }}>
+        <GoldButton onClick={handleSave} disabled={saving}>{saving ? "Salvando..." : "Salvar alterações"}</GoldButton>
+      </div>
+    </div>
+  );
+}
+
+function ConfiguracoesView({ settings, setSettings, financialGoals, setFinancialGoals }) {
   const [tab, setTab] = useState("empresa");
   const tabs = [
     { id: "empresa", label: "Empresa" }, { id: "financeiro", label: "Financeiro" },
@@ -2452,12 +2803,7 @@ function ConfiguracoesView() {
           </div>
         )}
         {tab === "financeiro" && (
-          <div className="cc-form-grid">
-            <Field label="Margem padrão (%)"><TextInput type="number" defaultValue={100} /></Field>
-            <Field label="Taxa da maquininha (%)"><TextInput type="number" defaultValue={3.5} /></Field>
-            <Field label="Comissão (%)"><TextInput type="number" defaultValue={0} /></Field>
-            <Field label="Impostos (%)"><TextInput type="number" defaultValue={6} /></Field>
-          </div>
+          <FinanceiroTab settings={settings} setSettings={setSettings} financialGoals={financialGoals} setFinancialGoals={setFinancialGoals} />
         )}
         {tab === "categorias" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -2521,6 +2867,9 @@ export default function App() {
   const [cashflow, setCashflow] = useState([]);
   const [wishlistCounts, setWishlistCounts] = useState({});
   const [visits, setVisits] = useState([]);
+  const [settings, setSettings] = useState(null);
+  const [financialGoals, setFinancialGoals] = useState([]);
+  const [accountsPayable, setAccountsPayable] = useState([]);
 
   // Verifica se já existe uma sessão ativa e escuta mudanças (login/logout em outra aba, expiração de token)
   useEffect(() => {
@@ -2560,8 +2909,11 @@ export default function App() {
       listPurchases(),
       listWishlistCounts(),
       listVisits(),
+      getSettings(),
+      listGoals(),
+      listAccountsPayable(),
     ])
-      .then(([productRows, categoryRows, supplierRows, clientRows, orderRows, cashflowRows, purchaseRows, wishlistCountRows, visitRows]) => {
+      .then(([productRows, categoryRows, supplierRows, clientRows, orderRows, cashflowRows, purchaseRows, wishlistCountRows, visitRows, settingsRow, goalRows, accountRows]) => {
         setProducts(productRows);
         setCategories(categoryRows);
         setSuppliers(supplierRows);
@@ -2571,6 +2923,9 @@ export default function App() {
         setPurchases(purchaseRows);
         setWishlistCounts(wishlistCountRows);
         setVisits(visitRows);
+        setSettings(settingsRow);
+        setFinancialGoals(goalRows);
+        setAccountsPayable(accountRows);
       })
       .catch((err) => setProductsError(err.message))
       .finally(() => setProductsLoading(false));
@@ -2669,18 +3024,18 @@ export default function App() {
       <div style={{ flex: 1, minWidth: 0 }}>
         <Topbar title={VIEW_TITLES[active]} setMobileOpen={setMobileOpen} />
         <main style={{ padding: "22px 24px 60px" }}>
-          {active === "dashboard" && <Dashboard products={products} orders={orders} cashflow={cashflow} visits={visits} />}
+          {active === "dashboard" && <Dashboard products={products} orders={orders} cashflow={cashflow} visits={visits} financialGoals={financialGoals} />}
           {active === "produtos" && <ProdutosView products={products} setProducts={setProducts} suppliers={suppliers} categories={categories} wishlistCounts={wishlistCounts} loading={productsLoading} loadError={productsError} />}
           {active === "clientes" && <ClientesView clients={clients} setClients={setClients} loading={productsLoading} loadError={productsError} />}
           {active === "fornecedores" && <FornecedoresView suppliers={suppliers} setSuppliers={setSuppliers} loading={productsLoading} loadError={productsError} />}
           {active === "compras" && <ComprasView purchases={purchases} setPurchases={setPurchases} suppliers={suppliers} products={products} setProducts={setProducts} setCashflow={setCashflow} loading={productsLoading} loadError={productsError} />}
           {active === "estoque" && <EstoqueView products={products} loading={productsLoading} loadError={productsError} />}
           {active === "pedidos" && <PedidosView orders={orders} setOrders={setOrders} clients={clients} products={products} onStatusChange={handleOrderStatusChange} loading={productsLoading} loadError={productsError} />}
-          {active === "precificacao" && <PrecificacaoView />}
-          {active === "caixa" && <CaixaView cashflow={cashflow} setCashflow={setCashflow} orders={orders} setOrders={setOrders} clients={clients} products={products} onStatusChange={handleOrderStatusChange} loading={productsLoading} loadError={productsError} />}
+          {active === "precificacao" && <PrecificacaoView products={products} setProducts={setProducts} settings={settings} />}
+          {active === "caixa" && <CaixaView cashflow={cashflow} setCashflow={setCashflow} orders={orders} setOrders={setOrders} clients={clients} products={products} onStatusChange={handleOrderStatusChange} accountsPayable={accountsPayable} setAccountsPayable={setAccountsPayable} suppliers={suppliers} loading={productsLoading} loadError={productsError} />}
           {active === "relatorios" && <RelatoriosView products={products} clients={clients} orders={orders} cashflow={cashflow} wishlistCounts={wishlistCounts} visits={visits} loading={productsLoading} />}
           {active === "catalogo" && <CatalogoView products={products} />}
-          {active === "config" && <ConfiguracoesView />}
+          {active === "config" && <ConfiguracoesView settings={settings} setSettings={setSettings} financialGoals={financialGoals} setFinancialGoals={setFinancialGoals} />}
         </main>
       </div>
     </div>
