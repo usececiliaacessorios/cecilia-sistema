@@ -5,7 +5,7 @@ import {
   Search, Bell, ChevronDown, Plus, X, Pencil, Trash2, ImagePlus,
   TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, Clock,
   Instagram, MessageCircle, Store, MapPin, Eye, EyeOff, Lock, Mail,
-  Menu, Sparkles, ArrowUpRight, ArrowDownRight, Filter, Share2, Upload
+  Menu, Sparkles, ArrowUpRight, ArrowDownRight, Filter, Share2, Upload, Star
 } from "lucide-react";
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import * as XLSX from "xlsx";
 import { login, getCurrentUser, getCurrentProfile, updateCurrentProfile, onAuthChange, requestPasswordReset } from "./services/auth";
-import { listProducts, listCategories, createProduct, updateProduct, updateProductPrice, deleteProduct, bulkDeleteProducts, uploadProductPhoto, bulkCreateProducts } from "./services/produtos";
+import { listProducts, listCategories, createProduct, updateProduct, updateProductPrice, deleteProduct, bulkDeleteProducts, syncProductPhotos, bulkCreateProducts } from "./services/produtos";
 import { listSuppliers, createSupplier, updateSupplier, deleteSupplier } from "./services/fornecedores";
 import { listClients, createClient, updateClient, deleteClient } from "./services/clientes";
 import { listOrders, createOrder, updateOrder, updateOrderStatus, deleteOrder } from "./services/pedidos";
@@ -887,7 +887,7 @@ function ImportModal({ categories, onClose, onImported }) {
 
 function emptyProduct(categories) {
   return {
-    categoryId: categories?.[0]?.id || "", collection: "", name: "", photo: "",
+    categoryId: categories?.[0]?.id || "", collection: "", name: "", photo: "", photos: [],
     banho: "", cor: "", pedra: "", garantia: "05 meses", peso: "",
     fornecedorId: "", dataCompra: "", valorPago: "", freteRateado: "",
     precoSugerido: "", margem: 100, promocao: false, disponibilidade: "Pronta entrega",
@@ -911,7 +911,7 @@ function ProdutosView({ products, setProducts, suppliers, categories, wishlistCo
   function openNew() { setModal({ mode: "new", data: emptyProduct(categories) }); }
   function openEdit(p) { setModal({ mode: "edit", data: { ...p } }); }
 
-  async function save(data, photoFile) {
+  async function save(data, photoMeta) {
     setSaving(true);
     try {
       let productId = data.id;
@@ -921,8 +921,8 @@ function ProdutosView({ products, setProducts, suppliers, categories, wishlistCo
       } else {
         await updateProduct(data.id, data);
       }
-      if (photoFile) {
-        await uploadProductPhoto(productId, photoFile);
+      if (photoMeta?.changed) {
+        await syncProductPhotos(productId, photoMeta.keepPhotos, photoMeta.newFiles);
       }
       const fresh = await listProducts();
       setProducts(fresh);
@@ -1151,41 +1151,92 @@ function ProdutosView({ products, setProducts, suppliers, categories, wishlistCo
 
 function ProductForm({ data, suppliers, categories, onSave, saving, onCancel, previewCode }) {
   const [form, setForm] = useState(data);
-  const [photoFile, setPhotoFile] = useState(null);
-  const [photoPreview, setPhotoPreview] = useState(data.photo || "");
+  // Fotos existentes (URLs já salvas no banco), na ordem em que aparecem —
+  // a primeira é sempre a capa. newPhotos são arquivos novos ainda não
+  // enviados, mostrados depois das existentes.
+  const [existingPhotos, setExistingPhotos] = useState(data.photos?.length ? data.photos : (data.photo ? [data.photo] : []));
+  const [newPhotos, setNewPhotos] = useState([]); // [{file, preview}]
+  const [photosChanged, setPhotosChanged] = useState(false);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target && e.target.type === "checkbox" ? e.target.checked : e.target.value }));
 
   function handlePhotoChange(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setPhotoFile(file);
-    setPhotoPreview(URL.createObjectURL(file));
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    setNewPhotos((prev) => [...prev, ...files.map((file) => ({ file, preview: URL.createObjectURL(file) }))]);
+    setPhotosChanged(true);
+    e.target.value = "";
   }
 
   useEffect(() => {
-    if (!photoFile) return;
-    const url = photoPreview;
-    return () => URL.revokeObjectURL(url);
-  }, [photoFile, photoPreview]);
+    return () => newPhotos.forEach((p) => URL.revokeObjectURL(p.preview));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function removeExisting(url) {
+    setExistingPhotos((prev) => prev.filter((p) => p !== url));
+    setPhotosChanged(true);
+  }
+
+  function removeNew(preview) {
+    setNewPhotos((prev) => prev.filter((p) => p.preview !== preview));
+    URL.revokeObjectURL(preview);
+    setPhotosChanged(true);
+  }
+
+  function makeCover(url) {
+    setExistingPhotos((prev) => [url, ...prev.filter((p) => p !== url)]);
+    setPhotosChanged(true);
+  }
+
+  const capaUrl = existingPhotos[0] || newPhotos[0]?.preview || "";
 
   const custo = (parseFloat(form.valorPago) || 0) + (parseFloat(form.freteRateado) || 0);
   const lucro = (parseFloat(form.precoSugerido) || 0) - custo;
 
   return (
-    <form onSubmit={(e) => { e.preventDefault(); onSave(form, photoFile); }}>
+    <form onSubmit={(e) => {
+      e.preventDefault();
+      onSave(form, { keepPhotos: existingPhotos, newFiles: newPhotos.map((p) => p.file), changed: photosChanged });
+    }}>
       <p style={{ fontFamily: "Manrope", fontSize: 12, fontWeight: 700, color: GOLD, marginBottom: 4 }}>Código: {previewCode}</p>
 
-      <p className="cc-form-group-title">Foto</p>
-      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        <div style={{ width: 64, height: 64, borderRadius: 10, background: CREAM, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 }}>
-          {photoPreview ? (
-            <img src={photoPreview} alt="Prévia da foto" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-          ) : (
-            <ImagePlus size={22} color="#B8AF9C" />
-          )}
-        </div>
-        <input type="file" accept="image/*" onChange={handlePhotoChange} style={{ fontFamily: "Manrope", fontSize: 12.5 }} />
+      <p className="cc-form-group-title">Fotos</p>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        {existingPhotos.map((url) => (
+          <div key={url} style={{ position: "relative", width: 64, height: 64, borderRadius: 10, overflow: "hidden", flexShrink: 0, border: url === capaUrl ? `2px solid ${GOLD}` : "1px solid #E2E0D6" }}>
+            <img src={url} alt="Foto do produto" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            {url === capaUrl && (
+              <span style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "rgba(199,161,90,0.9)", color: "#fff", fontFamily: "Manrope", fontSize: 8.5, fontWeight: 700, textAlign: "center", padding: "1px 0" }}>CAPA</span>
+            )}
+            <div style={{ position: "absolute", top: 2, right: 2, display: "flex", gap: 2 }}>
+              {url !== capaUrl && (
+                <button type="button" onClick={() => makeCover(url)} title="Definir como capa" style={{ width: 18, height: 18, borderRadius: "50%", border: "none", background: "rgba(255,255,255,0.9)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Star size={10} color={GREEN} />
+                </button>
+              )}
+              <button type="button" onClick={() => removeExisting(url)} title="Remover foto" style={{ width: 18, height: 18, borderRadius: "50%", border: "none", background: "rgba(255,255,255,0.9)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <X size={11} color="#B94A48" />
+              </button>
+            </div>
+          </div>
+        ))}
+        {newPhotos.map((p) => (
+          <div key={p.preview} style={{ position: "relative", width: 64, height: 64, borderRadius: 10, overflow: "hidden", flexShrink: 0, border: p.preview === capaUrl ? `2px solid ${GOLD}` : "1px solid #E2E0D6" }}>
+            <img src={p.preview} alt="Prévia da foto nova" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            {p.preview === capaUrl && (
+              <span style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "rgba(199,161,90,0.9)", color: "#fff", fontFamily: "Manrope", fontSize: 8.5, fontWeight: 700, textAlign: "center", padding: "1px 0" }}>CAPA</span>
+            )}
+            <button type="button" onClick={() => removeNew(p.preview)} title="Remover foto" style={{ position: "absolute", top: 2, right: 2, width: 18, height: 18, borderRadius: "50%", border: "none", background: "rgba(255,255,255,0.9)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <X size={11} color="#B94A48" />
+            </button>
+          </div>
+        ))}
+        <label style={{ width: 64, height: 64, borderRadius: 10, background: CREAM, border: "1px dashed #C9BFA6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer" }}>
+          <ImagePlus size={20} color="#B8AF9C" />
+          <input type="file" accept="image/*" multiple onChange={handlePhotoChange} style={{ display: "none" }} />
+        </label>
       </div>
+      <p style={{ fontFamily: "Manrope", fontSize: 11, color: "#8A968F", margin: "6px 0 0" }}>A primeira foto (com a estrelinha) é a capa mostrada nas listagens e no catálogo.</p>
 
       <p className="cc-form-group-title">Identificação</p>
       <div className="cc-form-grid">

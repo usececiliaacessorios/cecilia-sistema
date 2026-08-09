@@ -11,6 +11,7 @@ function mapProductRow(row) {
     categoryId: row.category_id,
     collection: row.collection,
     photo: row.photo_url ?? "",
+    photos: row.photos ?? [],
     banho: row.banho,
     cor: row.cor,
     pedra: row.pedra,
@@ -181,17 +182,28 @@ export async function bulkDeleteProducts(ids) {
   if (error) throw error;
 }
 
-// Upload de foto: salva no bucket "produtos-fotos" e devolve a URL pública
-export async function uploadProductPhoto(productId, file) {
-  const path = `${productId}/${Date.now()}-${file.name}`;
-  const { error: uploadError } = await supabase.storage.from("produtos-fotos").upload(path, file);
-  if (uploadError) throw uploadError;
+// Sincroniza a galeria de fotos de um produto: envia os arquivos novos pro
+// bucket "produtos-fotos", junta com as fotos que devem ser mantidas
+// (já sem as removidas, na ordem escolhida no formulário) e grava tudo em
+// products.photos. A primeira da lista vira a capa (photo_url), usada nas
+// telas que só mostram uma imagem (tabela de Produtos, catálogo interno,
+// card do catálogo público).
+export async function syncProductPhotos(productId, keepPhotos, newFiles) {
+  const uploadedUrls = [];
+  for (const file of newFiles) {
+    const path = `${productId}/${Date.now()}-${file.name}`;
+    const { error: uploadError } = await supabase.storage.from("produtos-fotos").upload(path, file);
+    if (uploadError) throw uploadError;
+    const { data } = supabase.storage.from("produtos-fotos").getPublicUrl(path);
+    uploadedUrls.push(data.publicUrl);
+  }
 
-  const { data } = supabase.storage.from("produtos-fotos").getPublicUrl(path);
-  const photoUrl = data.publicUrl;
-
-  const { error: updateError } = await supabase.from("products").update({ photo_url: photoUrl }).eq("id", productId);
+  const photos = [...keepPhotos, ...uploadedUrls];
+  const { error: updateError } = await supabase
+    .from("products")
+    .update({ photos, photo_url: photos[0] || null })
+    .eq("id", productId);
   if (updateError) throw updateError;
 
-  return photoUrl;
+  return photos;
 }

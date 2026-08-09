@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ImagePlus, MessageCircle, ShoppingBag, X, Heart } from "lucide-react";
+import { ImagePlus, MessageCircle, ShoppingBag, X, Heart, ChevronLeft, ChevronRight } from "lucide-react";
 import { listPublicCatalog } from "../services/produtos";
 import { listWishlistIds, addWishlistItem, removeWishlistItem } from "../services/wishlist";
 import { registerVisit } from "../services/visitas";
@@ -53,6 +53,69 @@ function getCartIncentiveMessage(totalQty) {
 const PROMO_BANNER_TEXT =
   `✨ Compre ${DISCOUNT_TIER_1_QTY} peças e ganhe ${DISCOUNT_TIER_1_RATE * 100}% OFF · ` +
   `💚 Compre ${DISCOUNT_TIER_2_QTY} ou mais e ganhe ${DISCOUNT_TIER_2_RATE * 100}% OFF!`;
+
+// Card de imagem com mini-carrossel quando o produto tem mais de uma foto
+// (setas nas laterais + pontinhos embaixo); com uma foto só ou nenhuma,
+// se comporta como antes.
+function CatalogCardImage({ photos, fallbackUrl, promocao, favorited, onToggleFavorite }) {
+  const list = photos && photos.length > 0 ? photos : (fallbackUrl ? [fallbackUrl] : []);
+  const [idx, setIdx] = useState(0);
+  const hasMultiple = list.length > 1;
+  const current = list[Math.min(idx, list.length - 1)];
+
+  function prev(e) {
+    e.stopPropagation();
+    setIdx((i) => (i - 1 + list.length) % list.length);
+  }
+  function next(e) {
+    e.stopPropagation();
+    setIdx((i) => (i + 1) % list.length);
+  }
+
+  return (
+    <div style={{
+      aspectRatio: "1/1", borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14, position: "relative", overflow: "hidden",
+      background: current ? `center/cover no-repeat url(${current})` : `linear-gradient(150deg, ${CREAM}, #F0ECE0)`,
+    }}>
+      {!current && <ImagePlus size={28} color="#C9BFA6" />}
+      {promocao && <span style={{ position: "absolute", top: 10, left: 10, background: GOLD, color: "#fff", fontFamily: "Manrope", fontSize: 10.5, fontWeight: 800, padding: "3px 9px", borderRadius: 12 }}>PROMOÇÃO</span>}
+      <button
+        onClick={onToggleFavorite}
+        title={favorited ? "Remover dos favoritos" : "Adicionar aos favoritos"}
+        style={{
+          position: "absolute", top: 8, right: 8, width: 30, height: 30, borderRadius: "50%",
+          background: "rgba(255,255,255,0.9)", border: "none", cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+        }}
+      >
+        <Heart size={15} color={favorited ? "#B5533D" : "#8A968F"} fill={favorited ? "#B5533D" : "none"} />
+      </button>
+      {hasMultiple && (
+        <>
+          <button onClick={prev} title="Foto anterior" style={{
+            position: "absolute", left: 6, top: "50%", transform: "translateY(-50%)", width: 26, height: 26, borderRadius: "50%",
+            background: "rgba(255,255,255,0.85)", border: "none", cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+          }}>
+            <ChevronLeft size={15} color={INK} />
+          </button>
+          <button onClick={next} title="Próxima foto" style={{
+            position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", width: 26, height: 26, borderRadius: "50%",
+            background: "rgba(255,255,255,0.85)", border: "none", cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+          }}>
+            <ChevronRight size={15} color={INK} />
+          </button>
+          <div style={{ position: "absolute", bottom: 8, left: 0, right: 0, display: "flex", justifyContent: "center", gap: 4 }}>
+            {list.map((_, i) => (
+              <span key={i} style={{ width: 5, height: 5, borderRadius: "50%", background: i === idx ? "#fff" : "rgba(255,255,255,0.5)" }} />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 function ChipRow({ options, value, onChange }) {
   return (
@@ -247,24 +310,13 @@ export default function PublicCatalogPage() {
             const detalhes = [p.banho, p.cor, p.pedra].filter(Boolean).join(" · ");
             return (
               <div key={p.id} className="cc-card cc-catalog-card">
-                <div style={{
-                  aspectRatio: "1/1", borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14, position: "relative", overflow: "hidden",
-                  background: p.photo_url ? `center/cover no-repeat url(${p.photo_url})` : `linear-gradient(150deg, ${CREAM}, #F0ECE0)`,
-                }}>
-                  {!p.photo_url && <ImagePlus size={28} color="#C9BFA6" />}
-                  {p.promocao && <span style={{ position: "absolute", top: 10, left: 10, background: GOLD, color: "#fff", fontFamily: "Manrope", fontSize: 10.5, fontWeight: 800, padding: "3px 9px", borderRadius: 12 }}>PROMOÇÃO</span>}
-                  <button
-                    onClick={() => toggleFavorite(p.id)}
-                    title={favorites.has(p.id) ? "Remover dos favoritos" : "Adicionar aos favoritos"}
-                    style={{
-                      position: "absolute", top: 8, right: 8, width: 30, height: 30, borderRadius: "50%",
-                      background: "rgba(255,255,255,0.9)", border: "none", cursor: "pointer",
-                      display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
-                    }}
-                  >
-                    <Heart size={15} color={favorites.has(p.id) ? "#B5533D" : "#8A968F"} fill={favorites.has(p.id) ? "#B5533D" : "none"} />
-                  </button>
-                </div>
+                <CatalogCardImage
+                  photos={p.photos}
+                  fallbackUrl={p.photo_url}
+                  promocao={p.promocao}
+                  favorited={favorites.has(p.id)}
+                  onToggleFavorite={() => toggleFavorite(p.id)}
+                />
                 <p style={{ fontFamily: "Manrope", fontSize: 11, fontWeight: 700, color: GOLD, margin: 0, letterSpacing: ".04em" }}>{p.code}</p>
                 <p style={{ fontFamily: "Cormorant Garamond", fontSize: 19, fontWeight: 600, margin: "3px 0 6px", color: INK }}>{p.name}</p>
                 <p style={{ fontFamily: "Manrope", fontSize: 12, color: "#7A897F", margin: p.observacoes ? "0 0 4px" : "0 0 10px", lineHeight: 1.5 }}>
