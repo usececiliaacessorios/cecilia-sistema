@@ -890,7 +890,7 @@ function emptyProduct(categories) {
     categoryId: categories?.[0]?.id || "", collection: "", name: "", photo: "", photos: [],
     banho: "", cor: "", pedra: "", garantia: "05 meses", peso: "",
     fornecedorId: "", dataCompra: "", valorPago: "", freteRateado: "",
-    precoSugerido: "", margem: 100, promocao: false, disponibilidade: "Pronta entrega",
+    precoSugerido: "", precoOriginal: "", margem: 100, promocao: false, disponibilidade: "Pronta entrega",
     quantidade: "", estoqueMinimo: "", localizacao: "", observacoes: "",
   };
 }
@@ -1090,7 +1090,12 @@ function ProdutosView({ products, setProducts, suppliers, categories, wishlistCo
                       <Badge tone={p.quantidade <= p.estoqueMinimo ? "red" : "green"}>{p.quantidade} un.</Badge>
                     </td>
                     <td style={td}>{money(p.custoTotal)}</td>
-                    <td style={td}>{money(p.precoSugerido)}{p.promocao && <Badge tone="gold"> Promo</Badge>}</td>
+                    <td style={td}>
+                      {p.promocao && p.precoOriginal > p.precoSugerido && (
+                        <span style={{ display: "block", fontSize: 11.5, color: "#A79E8C", textDecoration: "line-through" }}>{money(p.precoOriginal)}</span>
+                      )}
+                      {money(p.precoSugerido)}{p.promocao && <Badge tone="gold"> Promo</Badge>}
+                    </td>
                     <td style={td}><span style={{ color: GREEN, fontWeight: 700 }}>{money(p.lucro)}</span></td>
                     <td style={td}>
                       <div style={{ display: "flex", gap: 6 }}>
@@ -1196,6 +1201,12 @@ function ProductForm({ data, suppliers, categories, onSave, saving, onCancel, pr
   return (
     <form onSubmit={(e) => {
       e.preventDefault();
+      if (form.promocao && form.precoOriginal !== "" && form.precoOriginal != null) {
+        if (Number(form.precoOriginal) <= (Number(form.precoSugerido) || 0)) {
+          alert("O preço original precisa ser maior que o preço sugerido (promocional).");
+          return;
+        }
+      }
       onSave(form, { keepPhotos: existingPhotos, newFiles: newPhotos.map((p) => p.file), changed: photosChanged });
     }}>
       <p style={{ fontFamily: "Manrope", fontSize: 12, fontWeight: 700, color: GOLD, marginBottom: 4 }}>Código: {previewCode}</p>
@@ -1276,6 +1287,16 @@ function ProductForm({ data, suppliers, categories, onSave, saving, onCancel, pr
           <label style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 0" }}>
             <input type="checkbox" checked={!!form.promocao} onChange={set("promocao")} /> <span style={{ fontFamily: "Manrope", fontSize: 13 }}>Sim</span>
           </label>
+        </Field>
+        <Field label="Preço original (R$)">
+          <TextInput
+            type="number"
+            step="0.01"
+            disabled={!form.promocao}
+            value={form.precoOriginal}
+            onChange={set("precoOriginal")}
+            placeholder="Preço antes da promoção"
+          />
         </Field>
         <Field label="Disponibilidade">
           <Select value={form.disponibilidade || "Pronta entrega"} onChange={set("disponibilidade")}>

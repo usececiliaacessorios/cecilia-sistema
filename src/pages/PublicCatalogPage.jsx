@@ -308,6 +308,8 @@ export default function PublicCatalogPage() {
           {filtered.map((p) => {
             const msg = encodeURIComponent(`Olá! Tenho interesse na peça ${p.name}${p.code ? ` (${p.code})` : ""} — ${money(p.preco_sugerido)}.`);
             const detalhes = [p.banho, p.cor, p.pedra].filter(Boolean).join(" · ");
+            const hasDiscount = p.promocao && p.preco_original > p.preco_sugerido;
+            const discountPercent = hasDiscount ? Math.round((1 - p.preco_sugerido / p.preco_original) * 100) : 0;
             return (
               <div key={p.id} className="cc-card cc-catalog-card">
                 <CatalogCardImage
@@ -328,7 +330,15 @@ export default function PublicCatalogPage() {
                   </p>
                 )}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                  <span style={{ fontFamily: "Cormorant Garamond", fontSize: 22, fontWeight: 700, color: GREEN }}>{money(p.preco_sugerido)}</span>
+                  <div>
+                    {hasDiscount && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 1 }}>
+                        <span style={{ fontFamily: "Manrope", fontSize: 12.5, color: "#A79E8C", textDecoration: "line-through" }}>{money(p.preco_original)}</span>
+                        <span style={{ fontFamily: "Manrope", fontSize: 10.5, fontWeight: 800, color: "#fff", background: "#B5533D", borderRadius: 10, padding: "1px 7px" }}>-{discountPercent}%</span>
+                      </div>
+                    )}
+                    <span style={{ fontFamily: "Cormorant Garamond", fontSize: 22, fontWeight: 700, color: GREEN }}>{money(p.preco_sugerido)}</span>
+                  </div>
                   <div style={{ display: "flex", gap: 6 }}>
                     <button onClick={() => handleAddClick(p)} className="cc-btn-gold" style={{ padding: "8px 10px", fontSize: 12 }} title="Adicionar à sacola">
                       <ShoppingBag size={14} />
