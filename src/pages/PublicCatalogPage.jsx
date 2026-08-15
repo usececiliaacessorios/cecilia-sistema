@@ -3,6 +3,7 @@ import { ImagePlus, MessageCircle, ShoppingBag, X, Heart, ChevronLeft, ChevronRi
 import { listPublicCatalog } from "../services/produtos";
 import { listWishlistIds, addWishlistItem, removeWishlistItem } from "../services/wishlist";
 import { registerVisit } from "../services/visitas";
+import { listActiveBanners } from "../services/banners";
 import { GREEN, GREEN_DARK, GOLD, CREAM, INK, FONT_IMPORT, money, CeciliaLogo } from "../App";
 
 const TABS = ["Pronta entrega", "Sob encomenda", "Meus favoritos"];
@@ -117,6 +118,80 @@ function CatalogCardImage({ photos, fallbackUrl, promocao, favorited, onToggleFa
   );
 }
 
+const BANNER_INTERVAL_MS = 5000;
+
+// Carrossel de banners do topo do catálogo: troca automática a cada 5s (com
+// fade), bolinhas clicáveis e swipe no celular. Com 1 banner só, fica fixo
+// sem indicadores; com 0 banners, o chamador nem renderiza a seção.
+function BannerCarousel({ banners }) {
+  const [idx, setIdx] = useState(0);
+  const hasMultiple = banners.length > 1;
+  const touchStartX = React.useRef(null);
+
+  useEffect(() => {
+    if (!hasMultiple) return;
+    const timer = setInterval(() => setIdx((i) => (i + 1) % banners.length), BANNER_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [hasMultiple, banners.length]);
+
+  useEffect(() => {
+    if (idx >= banners.length) setIdx(0);
+  }, [banners.length, idx]);
+
+  function onTouchStart(e) {
+    touchStartX.current = e.touches[0].clientX;
+  }
+  function onTouchEnd(e) {
+    if (touchStartX.current == null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    touchStartX.current = null;
+    if (Math.abs(dx) < 40) return;
+    setIdx((i) => (dx < 0 ? (i + 1) % banners.length : (i - 1 + banners.length) % banners.length));
+  }
+
+  if (banners.length === 0) return null;
+
+  return (
+    <div style={{ padding: "0 16px", marginBottom: 22 }}>
+      <div
+        onTouchStart={hasMultiple ? onTouchStart : undefined}
+        onTouchEnd={hasMultiple ? onTouchEnd : undefined}
+        style={{
+          position: "relative", width: "100%", maxWidth: 1200, aspectRatio: "2/1", margin: "0 auto",
+          borderRadius: 16, overflow: "hidden", background: CREAM,
+        }}
+      >
+        {banners.map((b, i) => (
+          <img
+            key={b.id}
+            src={b.imagemUrl}
+            alt="Banner"
+            style={{
+              position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover",
+              opacity: i === idx ? 1 : 0, transition: "opacity 0.6s ease",
+            }}
+          />
+        ))}
+        {hasMultiple && (
+          <div style={{ position: "absolute", bottom: 10, left: 0, right: 0, display: "flex", justifyContent: "center", gap: 6 }}>
+            {banners.map((b, i) => (
+              <button
+                key={b.id}
+                onClick={() => setIdx(i)}
+                title={`Banner ${i + 1}`}
+                style={{
+                  width: 8, height: 8, borderRadius: "50%", border: "none", padding: 0, cursor: "pointer",
+                  background: i === idx ? "#fff" : "rgba(255,255,255,0.5)", boxShadow: "0 1px 3px rgba(0,0,0,0.35)",
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ChipRow({ options, value, onChange }) {
   return (
     <div className="cc-filter-row">
@@ -145,12 +220,17 @@ export default function PublicCatalogPage() {
   const [personalizeText, setPersonalizeText] = useState("");
   const [visitorId] = useState(getVisitorId);
   const [favorites, setFavorites] = useState(new Set());
+  const [banners, setBanners] = useState([]);
 
   useEffect(() => {
     listPublicCatalog()
       .then(setItems)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    listActiveBanners().then(setBanners).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -269,13 +349,7 @@ export default function PublicCatalogPage() {
         </div>
       </div>
 
-      <div style={{ padding: "0 16px", marginBottom: 22 }}>
-        <img
-          src="/banner-novidades.webp"
-          alt="Novidades chegando — nova coleção Cecília"
-          style={{ display: "block", width: "100%", maxWidth: 1200, height: "auto", margin: "0 auto", borderRadius: 16 }}
-        />
-      </div>
+      <BannerCarousel banners={banners} />
 
       <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 14, flexWrap: "wrap", padding: "0 16px" }}>
         {TABS.map((t) => (

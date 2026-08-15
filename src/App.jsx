@@ -5,7 +5,7 @@ import {
   Search, Bell, ChevronDown, Plus, X, Pencil, Trash2, ImagePlus,
   TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, Clock,
   Instagram, MessageCircle, Store, MapPin, Eye, EyeOff, Lock, Mail,
-  Menu, Sparkles, ArrowUpRight, ArrowDownRight, Filter, Share2, Upload, Star
+  Menu, Sparkles, ArrowUpRight, ArrowDownRight, Filter, Share2, Upload, Star, ChevronUp
 } from "lucide-react";
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
@@ -24,6 +24,7 @@ import { listVisits } from "./services/visitas";
 import { getSettings, updateSettings } from "./services/settings";
 import { listGoals, setGoalForMonth } from "./services/metas";
 import { listAccountsPayable, createAccountPayable, updateAccountPayable, deleteAccountPayable, markAccountAsPaid } from "./services/contasPagar";
+import { listBanners, uploadBannerImage, createBanner, updateBannerOrder, setBannerActive, deleteBanner } from "./services/banners";
 
 /* ============================================================
    CECÍLIA — Sistema de Gestão
@@ -2838,12 +2839,140 @@ function FinanceiroTab({ settings, setSettings, financialGoals, setFinancialGoal
   );
 }
 
+// Gestão dos banners do carrossel do catálogo público (/catalogo). Qualquer
+// usuário logado pode gerenciar (mesma permissão de RLS que Produtos), não é
+// restrito a admin.
+function BannersTab() {
+  const [banners, setBanners] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+
+  async function refresh() {
+    try {
+      const fresh = await listBanners();
+      setBanners(fresh);
+      setError("");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { refresh(); }, []);
+
+  async function handleAdd(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const url = await uploadBannerImage(file);
+      const nextOrdem = banners.length ? Math.max(...banners.map((b) => b.ordem)) + 1 : 1;
+      await createBanner(url, nextOrdem);
+      await refresh();
+    } catch (err) {
+      alert("Erro ao adicionar banner: " + err.message);
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  }
+
+  async function move(banner, direction) {
+    const sorted = [...banners].sort((a, b) => a.ordem - b.ordem);
+    const idx = sorted.findIndex((b) => b.id === banner.id);
+    const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= sorted.length) return;
+    const other = sorted[swapIdx];
+    setBusyId(banner.id);
+    try {
+      await Promise.all([
+        updateBannerOrder(banner.id, other.ordem),
+        updateBannerOrder(other.id, banner.ordem),
+      ]);
+      await refresh();
+    } catch (err) {
+      alert("Erro ao reordenar: " + err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function toggleActive(banner) {
+    setBusyId(banner.id);
+    try {
+      await setBannerActive(banner.id, !banner.ativo);
+      setBanners((prev) => prev.map((b) => (b.id === banner.id ? { ...b, ativo: !b.ativo } : b)));
+    } catch (err) {
+      alert("Erro ao atualizar banner: " + err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function remove(banner) {
+    if (!window.confirm("Remover este banner? A imagem também será apagada do Storage.")) return;
+    setBusyId(banner.id);
+    try {
+      await deleteBanner(banner);
+      setBanners((prev) => prev.filter((b) => b.id !== banner.id));
+    } catch (err) {
+      alert("Erro ao remover banner: " + err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const sorted = [...banners].sort((a, b) => a.ordem - b.ordem);
+
+  return (
+    <div>
+      <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#5B6B63", marginBottom: 16, lineHeight: 1.5 }}>
+        Os banners ativos aparecem em carrossel automático no topo do catálogo público (/catalogo), na ordem abaixo.
+      </p>
+      {error && (
+        <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#B94A48", marginBottom: 14 }}>Erro ao carregar banners: {error}</p>
+      )}
+      {loading ? (
+        <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A968F" }}>Carregando banners...</p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
+          {sorted.length === 0 && (
+            <p style={{ fontFamily: "Manrope", fontSize: 13, color: "#8A968F" }}>Nenhum banner cadastrado ainda.</p>
+          )}
+          {sorted.map((b, i) => (
+            <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: 10, background: CREAM, borderRadius: 10, opacity: busyId === b.id ? 0.6 : 1 }}>
+              <img src={b.imagemUrl} alt="Banner" style={{ width: 90, height: 45, objectFit: "cover", borderRadius: 8, flexShrink: 0, opacity: b.ativo ? 1 : 0.45 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ margin: 0, fontFamily: "Manrope", fontSize: 12.5, fontWeight: 600, color: INK }}>Banner {i + 1} · ordem {b.ordem}</p>
+                <Badge tone={b.ativo ? "green" : "red"}>{b.ativo ? "Ativo" : "Inativo"}</Badge>
+              </div>
+              <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                <button onClick={() => move(b, "up")} disabled={i === 0 || busyId === b.id} className="cc-icon-btn" title="Mover pra cima"><ChevronUp size={14} /></button>
+                <button onClick={() => move(b, "down")} disabled={i === sorted.length - 1 || busyId === b.id} className="cc-icon-btn" title="Mover pra baixo"><ChevronDown size={14} /></button>
+                <button onClick={() => toggleActive(b)} disabled={busyId === b.id} className="cc-icon-btn" title={b.ativo ? "Desativar" : "Ativar"}>{b.ativo ? <Eye size={14} /> : <EyeOff size={14} />}</button>
+                <button onClick={() => remove(b)} disabled={busyId === b.id} className="cc-icon-btn" title="Remover"><Trash2 size={14} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <label className="cc-btn-gold" style={{ cursor: uploading ? "default" : "pointer", opacity: uploading ? 0.6 : 1 }}>
+        <ImagePlus size={15} /> {uploading ? "Enviando..." : "Adicionar banner"}
+        <input type="file" accept="image/*" onChange={handleAdd} disabled={uploading} style={{ display: "none" }} />
+      </label>
+    </div>
+  );
+}
+
 function ConfiguracoesView({ settings, setSettings, financialGoals, setFinancialGoals }) {
   const [tab, setTab] = useState("empresa");
   const tabs = [
     { id: "empresa", label: "Empresa" }, { id: "financeiro", label: "Financeiro" },
-    { id: "categorias", label: "Categorias" }, { id: "usuarios", label: "Usuários e permissões" },
-    { id: "backup", label: "Backup" },
+    { id: "categorias", label: "Categorias" }, { id: "banners", label: "Banners" },
+    { id: "usuarios", label: "Usuários e permissões" }, { id: "backup", label: "Backup" },
   ];
 
   return (
@@ -2887,6 +3016,7 @@ function ConfiguracoesView({ settings, setSettings, financialGoals, setFinancial
             ))}
           </div>
         )}
+        {tab === "banners" && <BannersTab />}
         {tab === "usuarios" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {[{ nome: "Ana Cecília", papel: "Administradora" }, { nome: "Beatriz Lima", papel: "Vendas" }].map((u) => (
