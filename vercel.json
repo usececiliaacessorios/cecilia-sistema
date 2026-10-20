@@ -1,4 +1,7 @@
 {
+  "crons": [
+    { "path": "/api/ping", "schedule": "0 12 * * *" }
+  ],
   "rewrites": [
     { "source": "/bio", "destination": "/bio.html" },
     { "source": "/(.*)", "destination": "/index.html" }
