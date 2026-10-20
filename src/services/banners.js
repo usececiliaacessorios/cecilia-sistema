@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabaseClient";
+import { compressImage } from "../lib/imageCompress";
 
 function mapBannerRow(row) {
   return {
@@ -37,7 +38,8 @@ function pathFromPublicUrl(url) {
   return decodeURIComponent(url.slice(idx + marker.length));
 }
 
-export async function uploadBannerImage(file) {
+export async function uploadBannerImage(original) {
+  const file = await compressImage(original, { maxSize: 1920 });
   const path = `${Date.now()}-${file.name}`;
   const { error: uploadError } = await supabase.storage.from("catalogo-banners").upload(path, file);
   if (uploadError) throw uploadError;

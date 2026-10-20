@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabaseClient";
+import { compressImage } from "../lib/imageCompress";
 
 // Converte uma linha de "products" (snake_case, com joins em categories/suppliers)
 // para o formato camelCase que as telas do app usam.
@@ -193,7 +194,8 @@ export async function bulkDeleteProducts(ids) {
 // card do catálogo público).
 export async function syncProductPhotos(productId, keepPhotos, newFiles) {
   const uploadedUrls = [];
-  for (const file of newFiles) {
+  for (const original of newFiles) {
+    const file = await compressImage(original, { maxSize: 1400 });
     const path = `${productId}/${Date.now()}-${file.name}`;
     const { error: uploadError } = await supabase.storage.from("produtos-fotos").upload(path, file);
     if (uploadError) throw uploadError;
