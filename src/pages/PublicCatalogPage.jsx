@@ -6,7 +6,7 @@ import { registerVisit } from "../services/visitas";
 import { listActiveBanners } from "../services/banners";
 import { GREEN, GREEN_DARK, GOLD, CREAM, INK, FONT_IMPORT, money, CeciliaLogo } from "../App";
 
-const TABS = ["Pronta entrega", "Sob encomenda", "Meus favoritos"];
+const TABS = ["Pronta entrega", "Meus favoritos"];
 const WHATSAPP_NUMBER = "5566999428631";
 const VISITOR_ID_KEY = "cecilia_visitor_id";
 const LAST_VISIT_KEY = "cecilia_last_visit_at";
@@ -268,11 +268,14 @@ export default function PublicCatalogPage() {
   }
 
   // Opções geradas a partir dos produtos carregados — cada lojista pode ter categorias/banhos diferentes.
-  const categoryOptions = [...new Set(items.map((p) => p.categoria).filter(Boolean))].sort();
-  const banhoOptions = [...new Set(items.map((p) => p.banho).filter(Boolean))].sort();
+  const visibleItems = items.filter((p) => p.disponibilidade === "Pronta entrega");
+  const categoryOptions = [...new Set(visibleItems.map((p) => p.categoria).filter(Boolean))].sort();
+  const banhoOptions = [...new Set(visibleItems.map((p) => p.banho).filter(Boolean))].sort();
 
   const filtered = items.filter((p) => {
-    if (tab === "Meus favoritos" ? !favorites.has(p.id) : p.disponibilidade !== tab) return false;
+    // O catálogo público mostra só pronta entrega (itens sob encomenda ficam de fora, inclusive nos favoritos).
+    if (p.disponibilidade !== "Pronta entrega") return false;
+    if (tab === "Meus favoritos" && !favorites.has(p.id)) return false;
     return (categoryFilter === "Todas" || p.categoria === categoryFilter) &&
       (banhoFilter === "Todos" || p.banho === banhoFilter);
   });
@@ -395,9 +398,11 @@ export default function PublicCatalogPage() {
                 />
                 <p style={{ fontFamily: "Manrope", fontSize: 11, fontWeight: 700, color: GOLD, margin: 0, letterSpacing: ".04em" }}>{p.code}</p>
                 <p style={{ fontFamily: "Cormorant Garamond", fontSize: 19, fontWeight: 600, margin: "3px 0 6px", color: INK }}>{p.name}</p>
-                <p style={{ fontFamily: "Manrope", fontSize: 12, color: "#7A897F", margin: p.observacoes ? "0 0 4px" : "0 0 10px", lineHeight: 1.5 }}>
-                  {[detalhes, p.garantia ? `Garantia ${p.garantia}` : ""].filter(Boolean).join(" · ")}
-                </p>
+                {detalhes && (
+                  <p style={{ fontFamily: "Manrope", fontSize: 12, color: "#7A897F", margin: p.observacoes ? "0 0 4px" : "0 0 10px", lineHeight: 1.5 }}>
+                    {detalhes}
+                  </p>
+                )}
                 {p.observacoes && (
                   <p style={{ fontFamily: "Manrope", fontSize: 12, color: "#8A6B2E", margin: "0 0 10px", lineHeight: 1.5, fontStyle: "italic" }}>
                     {p.observacoes}
