@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { ImagePlus, MessageCircle, ShoppingBag, X, Heart, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { listPublicCatalog } from "../services/produtos";
 import { listWishlistIds, addWishlistItem, removeWishlistItem } from "../services/wishlist";
@@ -55,12 +56,134 @@ const PROMO_BANNER_TEXT =
   `✨ Compre ${DISCOUNT_TIER_1_QTY} peças e ganhe ${DISCOUNT_TIER_1_RATE * 100}% OFF · ` +
   `💚 Compre ${DISCOUNT_TIER_2_QTY} ou mais e ganhe ${DISCOUNT_TIER_2_RATE * 100}% OFF!`;
 
+// Foto em tela cheia: abre ao tocar na foto do card. Passa as fotos (setas no
+// computador, swipe no celular, Esc/X/fundo fecham) e dá zoom ao tocar na foto
+// (ampliada, dá pra arrastar/rolar para ver o detalhe; tocar de novo volta).
+function Lightbox({ photos, startIndex, title, onClose }) {
+  const [idx, setIdx] = useState(startIndex);
+  const [zoomed, setZoomed] = useState(false);
+  const scrollRef = React.useRef(null);
+  const touchStartX = React.useRef(null);
+  const count = photos.length;
+
+  function go(delta) {
+    setZoomed(false);
+    setIdx((i) => (i + delta + count) % count);
+  }
+
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === "Escape") onClose();
+      else if (e.key === "ArrowRight" && count > 1) go(1);
+      else if (e.key === "ArrowLeft" && count > 1) go(-1);
+    }
+    window.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [count]);
+
+  function toggleZoom(e) {
+    e.stopPropagation();
+    if (zoomed) {
+      setZoomed(false);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const fx = (e.clientX - rect.left) / rect.width;
+    const fy = (e.clientY - rect.top) / rect.height;
+    setZoomed(true);
+    // Depois de ampliar, centraliza o zoom no ponto em que a pessoa tocou.
+    requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      if (!el) return;
+      el.scrollLeft = fx * el.scrollWidth - el.clientWidth / 2;
+      el.scrollTop = fy * el.scrollHeight - el.clientHeight / 2;
+    });
+  }
+
+  function onTouchStart(e) {
+    touchStartX.current = zoomed ? null : e.touches[0].clientX;
+  }
+  function onTouchEnd(e) {
+    if (touchStartX.current == null || count < 2) return;
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    touchStartX.current = null;
+    if (Math.abs(dx) >= 50) go(dx < 0 ? 1 : -1);
+  }
+
+  const arrowStyle = (side) => ({
+    position: "absolute", [side]: 12, top: "50%", transform: "translateY(-50%)", width: 40, height: 40, borderRadius: "50%",
+    background: "rgba(255,255,255,0.9)", border: "none", cursor: "pointer", zIndex: 2,
+    display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+  });
+
+  // Portal: renderiza direto no <body>, fora do card (que tem overflow/transform
+  // e poderia prender a tela cheia). O stopPropagation evita que cliques aqui
+  // "vazem" pro card e reabram a tela cheia.
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={title ? `Fotos de ${title}` : "Fotos do produto"}
+      onClick={(e) => e.stopPropagation()}
+      style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(10,20,16,0.95)", display: "flex", flexDirection: "column" }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 16px", flexShrink: 0 }}>
+        <span style={{ fontFamily: "Cormorant Garamond", fontSize: 19, fontWeight: 600, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
+        <button onClick={onClose} title="Fechar" style={{
+          width: 38, height: 38, borderRadius: "50%", border: "none", background: "rgba(255,255,255,0.15)", cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+        }}>
+          <X size={20} color="#fff" />
+        </button>
+      </div>
+
+      <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex" }}>
+        <div
+          ref={scrollRef}
+          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+          onTouchStart={onTouchStart}
+          onTouchEnd={onTouchEnd}
+          style={{ flex: 1, minWidth: 0, display: "flex", overflow: zoomed ? "auto" : "hidden", padding: zoomed ? 0 : "0 16px" }}
+        >
+          <img
+            src={photos[idx]}
+            alt={title ? `${title} — foto ${idx + 1}` : `Foto ${idx + 1}`}
+            onClick={toggleZoom}
+            draggable={false}
+            style={zoomed
+              ? { width: "250%", maxWidth: "none", height: "auto", flexShrink: 0, margin: "auto", cursor: "zoom-out" }
+              : { maxWidth: "100%", maxHeight: "100%", objectFit: "contain", margin: "auto", cursor: "zoom-in", borderRadius: 8 }}
+          />
+        </div>
+        {count > 1 && !zoomed && (
+          <>
+            <button onClick={() => go(-1)} title="Foto anterior" style={arrowStyle("left")}><ChevronLeft size={22} color={INK} /></button>
+            <button onClick={() => go(1)} title="Próxima foto" style={arrowStyle("right")}><ChevronRight size={22} color={INK} /></button>
+          </>
+        )}
+      </div>
+
+      <div style={{ padding: "12px 16px 18px", textAlign: "center", fontFamily: "Manrope", fontSize: 12.5, color: "#CBDED4", flexShrink: 0 }}>
+        {count > 1 ? `${idx + 1} / ${count} · ` : ""}{zoomed ? "toque para voltar" : "toque na foto para ampliar"}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 // Card de imagem com mini-carrossel quando o produto tem mais de uma foto
 // (setas nas laterais + pontinhos embaixo); com uma foto só ou nenhuma,
-// se comporta como antes.
-function CatalogCardImage({ photos, fallbackUrl, promocao, favorited, onToggleFavorite }) {
+// se comporta como antes. Tocar na foto abre a tela cheia (Lightbox).
+function CatalogCardImage({ photos, fallbackUrl, name, promocao, favorited, onToggleFavorite }) {
   const list = photos && photos.length > 0 ? photos : (fallbackUrl ? [fallbackUrl] : []);
   const [idx, setIdx] = useState(0);
+  const [open, setOpen] = useState(false);
   const hasMultiple = list.length > 1;
   const current = list[Math.min(idx, list.length - 1)];
 
@@ -74,14 +197,21 @@ function CatalogCardImage({ photos, fallbackUrl, promocao, favorited, onToggleFa
   }
 
   return (
-    <div style={{
-      aspectRatio: "1/1", borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14, position: "relative", overflow: "hidden",
-      background: current ? `center/cover no-repeat url(${current})` : `linear-gradient(150deg, ${CREAM}, #F0ECE0)`,
-    }}>
+    <div
+      onClick={current ? () => setOpen(true) : undefined}
+      style={{
+        aspectRatio: "1/1", borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14, position: "relative", overflow: "hidden",
+        background: current ? `center/cover no-repeat url(${current})` : `linear-gradient(150deg, ${CREAM}, #F0ECE0)`,
+        cursor: current ? "zoom-in" : "default",
+      }}
+    >
+      {open && (
+        <Lightbox photos={list} startIndex={Math.min(idx, list.length - 1)} title={name} onClose={() => setOpen(false)} />
+      )}
       {!current && <ImagePlus size={28} color="#C9BFA6" />}
       {promocao && <span style={{ position: "absolute", top: 10, left: 10, background: GOLD, color: "#fff", fontFamily: "Manrope", fontSize: 10.5, fontWeight: 800, padding: "3px 9px", borderRadius: 12 }}>PROMOÇÃO</span>}
       <button
-        onClick={onToggleFavorite}
+        onClick={(e) => { e.stopPropagation(); onToggleFavorite(); }}
         title={favorited ? "Remover dos favoritos" : "Adicionar aos favoritos"}
         style={{
           position: "absolute", top: 8, right: 8, width: 30, height: 30, borderRadius: "50%",
@@ -432,6 +562,7 @@ export default function PublicCatalogPage() {
                 <CatalogCardImage
                   photos={p.photos}
                   fallbackUrl={p.photo_url}
+                  name={p.name}
                   promocao={p.promocao}
                   favorited={favorites.has(p.id)}
                   onToggleFavorite={() => toggleFavorite(p.id)}
