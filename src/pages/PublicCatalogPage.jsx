@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ImagePlus, MessageCircle, ShoppingBag, X, Heart, ChevronLeft, ChevronRight } from "lucide-react";
+import { ImagePlus, MessageCircle, ShoppingBag, X, Heart, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { listPublicCatalog } from "../services/produtos";
 import { listWishlistIds, addWishlistItem, removeWishlistItem } from "../services/wishlist";
 import { registerVisit } from "../services/visitas";
@@ -118,6 +118,11 @@ function CatalogCardImage({ photos, fallbackUrl, promocao, favorited, onToggleFa
   );
 }
 
+// Minúsculas e sem acento, pra "perola" achar "Pérola" e "ANEL" achar "anel".
+function normalizeText(s) {
+  return String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+}
+
 const BANNER_INTERVAL_MS = 5000;
 
 // Carrossel de banners do topo do catálogo: troca automática a cada 5s (com
@@ -214,6 +219,7 @@ export default function PublicCatalogPage() {
   const [tab, setTab] = useState("Pronta entrega");
   const [categoryFilter, setCategoryFilter] = useState("Todas");
   const [banhoFilter, setBanhoFilter] = useState("Todos");
+  const [search, setSearch] = useState("");
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [personalizeFor, setPersonalizeFor] = useState(null);
@@ -272,10 +278,17 @@ export default function PublicCatalogPage() {
   const categoryOptions = [...new Set(visibleItems.map((p) => p.categoria).filter(Boolean))].sort();
   const banhoOptions = [...new Set(visibleItems.map((p) => p.banho).filter(Boolean))].sort();
 
+  // Busca: todas as palavras digitadas precisam aparecer em algum campo da peça.
+  const searchWords = normalizeText(search).split(/\s+/).filter(Boolean);
+
   const filtered = items.filter((p) => {
     // O catálogo público mostra só pronta entrega (itens sob encomenda ficam de fora, inclusive nos favoritos).
     if (p.disponibilidade !== "Pronta entrega") return false;
     if (tab === "Meus favoritos" && !favorites.has(p.id)) return false;
+    if (searchWords.length > 0) {
+      const haystack = normalizeText([p.name, p.code, p.categoria, p.banho, p.cor, p.pedra, p.collection].filter(Boolean).join(" "));
+      if (!searchWords.every((w) => haystack.includes(w))) return false;
+    }
     return (categoryFilter === "Todas" || p.categoria === categoryFilter) &&
       (banhoFilter === "Todos" || p.banho === banhoFilter);
   });
@@ -364,6 +377,31 @@ export default function PublicCatalogPage() {
         ))}
       </div>
 
+      <div style={{ padding: "0 16px", marginBottom: 14 }}>
+        <div style={{ position: "relative", maxWidth: 460, margin: "0 auto" }}>
+          <Search size={16} color="#8A968F" style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por nome ou código (ex: colar pérola)"
+            style={{
+              width: "100%", fontFamily: "Manrope", fontSize: 16, padding: "11px 40px 11px 38px", borderRadius: 24,
+              border: "1px solid #E2E0D6", background: "#fff", color: INK, outline: "none",
+            }}
+          />
+          {search && (
+            <button onClick={() => setSearch("")} title="Limpar busca" style={{
+              position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", width: 24, height: 24,
+              borderRadius: "50%", border: "none", background: "#F0ECE0", cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <X size={13} color="#5B6B63" />
+            </button>
+          )}
+        </div>
+      </div>
+
       <div style={{ marginBottom: 22 }}>
         <ChipRow options={["Todas", ...categoryOptions]} value={categoryFilter} onChange={setCategoryFilter} />
         {banhoOptions.length > 0 && (
@@ -378,7 +416,9 @@ export default function PublicCatalogPage() {
           <p style={{ textAlign: "center", fontFamily: "Manrope", color: "#8A968F" }}>
             {tab === "Meus favoritos"
               ? "Você ainda não favoritou nenhuma peça — toque no coração das peças que você gostar!"
-              : "Nenhuma peça encontrada com esses filtros."}
+              : search.trim()
+                ? `Nenhuma peça encontrada para "${search.trim()}". Tente outra palavra ou limpe a busca.`
+                : "Nenhuma peça encontrada com esses filtros."}
           </p>
         )}
         <div className="cc-catalog-grid">
