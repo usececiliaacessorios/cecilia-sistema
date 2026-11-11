@@ -5,6 +5,7 @@ import { listPublicCatalog } from "../services/produtos";
 import { listWishlistIds, addWishlistItem, removeWishlistItem } from "../services/wishlist";
 import { registerVisit } from "../services/visitas";
 import { listActiveBanners } from "../services/banners";
+import { registerWhatsappClicks } from "../services/cliquesWhatsapp";
 import { GREEN, GREEN_DARK, GOLD, CREAM, INK, FONT_IMPORT, money, CeciliaLogo } from "../App";
 
 const TABS = ["Pronta entrega", "Meus favoritos"];
@@ -26,35 +27,6 @@ function shouldRegisterVisit() {
   const last = Number(localStorage.getItem(LAST_VISIT_KEY) || 0);
   return Date.now() - last > VISIT_DEDUPE_MS;
 }
-
-// Desconto por quantidade de peças no carrinho (não por valor).
-// A contagem soma as quantidades de todos os itens, não o nº de produtos diferentes.
-const DISCOUNT_TIER_1_QTY = 2;
-const DISCOUNT_TIER_1_RATE = 0.10; // 10%
-const DISCOUNT_TIER_2_QTY = 3;
-const DISCOUNT_TIER_2_RATE = 0.15; // 15%
-
-function getCartDiscountRate(totalQty) {
-  if (totalQty >= DISCOUNT_TIER_2_QTY) return DISCOUNT_TIER_2_RATE;
-  if (totalQty >= DISCOUNT_TIER_1_QTY) return DISCOUNT_TIER_1_RATE;
-  return 0;
-}
-
-function getCartIncentiveMessage(totalQty) {
-  if (totalQty >= DISCOUNT_TIER_2_QTY) {
-    return `🎉 Você ganhou ${DISCOUNT_TIER_2_RATE * 100}% de desconto!`;
-  }
-  if (totalQty >= DISCOUNT_TIER_1_QTY) {
-    const missing = DISCOUNT_TIER_2_QTY - totalQty;
-    return `Adicione mais ${missing} peça${missing > 1 ? "s" : ""} e ganhe ${DISCOUNT_TIER_2_RATE * 100}% OFF!`;
-  }
-  const missing = DISCOUNT_TIER_1_QTY - totalQty;
-  return `Adicione mais ${missing} peça${missing > 1 ? "s" : ""} e ganhe ${DISCOUNT_TIER_1_RATE * 100}% OFF!`;
-}
-
-const PROMO_BANNER_TEXT =
-  `✨ Compre ${DISCOUNT_TIER_1_QTY} peças e ganhe ${DISCOUNT_TIER_1_RATE * 100}% OFF · ` +
-  `💚 Compre ${DISCOUNT_TIER_2_QTY} ou mais e ganhe ${DISCOUNT_TIER_2_RATE * 100}% OFF!`;
 
 // Foto em tela cheia: abre ao tocar na foto do card. Passa as fotos (setas no
 // computador, swipe no celular, Esc/X/fundo fecham) e dá zoom ao tocar na foto
@@ -383,6 +355,12 @@ export default function PublicCatalogPage() {
     registerVisit(visitorId).catch(() => localStorage.removeItem(LAST_VISIT_KEY));
   }, [visitorId]);
 
+  // Conta o clique pra o painel interno (Relatórios/Dashboard). Falha em silêncio:
+  // medir nunca pode atrapalhar a pessoa de abrir o WhatsApp.
+  function trackWhatsappClick(productIds, origem) {
+    registerWhatsappClicks(productIds, visitorId, origem).catch(() => {});
+  }
+
   async function toggleFavorite(productId) {
     const isFav = favorites.has(productId);
     setFavorites((prev) => {
@@ -450,15 +428,13 @@ export default function PublicCatalogPage() {
 
   const cartCount = cart.reduce((s, i) => s + i.qty, 0);
   const cartSubtotal = cart.reduce((s, i) => s + i.qty * i.preco, 0);
-  const discountRate = getCartDiscountRate(cartCount);
-  const discountValue = cartSubtotal * discountRate;
-  const cartTotal = cartSubtotal - discountValue;
+  // Os preços das peças já são os finais (descontos por faixa de preço ficam no
+  // cadastro do produto); a sacola só soma, sem desconto extra por quantidade.
+  const cartTotal = cartSubtotal;
   const cartMessage = encodeURIComponent(
     `Olá! Tenho interesse nestas peças:\n` +
     cart.map((i) => `- ${i.name}${i.code ? ` (${i.code})` : ""}${i.personalizacao ? ` (personalização: ${i.personalizacao})` : ""} x${i.qty} — ${money(i.preco * i.qty)}`).join("\n") +
-    (discountRate > 0
-      ? `\n\nSubtotal: ${money(cartSubtotal)}\nDesconto (${discountRate * 100}%): -${money(discountValue)}\nTotal: ${money(cartTotal)}`
-      : `\n\nTotal: ${money(cartTotal)}`)
+    `\n\nTotal: ${money(cartTotal)}`
   );
 
   return (
@@ -485,15 +461,6 @@ export default function PublicCatalogPage() {
         <CeciliaLogo variant="large" />
         <p style={{ fontFamily: "Manrope", color: "#8FB3A5", fontSize: 11.5, margin: "12px 0 0", letterSpacing: ".08em" }}>CATÁLOGO DE PEÇAS</p>
       </header>
-
-      <div style={{ display: "flex", justifyContent: "center", padding: "0 16px", marginBottom: 22 }}>
-        <div style={{
-          display: "inline-flex", alignItems: "center", gap: 8, background: GOLD, color: "#fff",
-          borderRadius: 30, padding: "10px 20px", fontFamily: "Manrope", fontSize: 13, fontWeight: 700, textAlign: "center",
-        }}>
-          {PROMO_BANNER_TEXT}
-        </div>
-      </div>
 
       <BannerCarousel banners={banners} />
 
@@ -593,7 +560,7 @@ export default function PublicCatalogPage() {
                     <button onClick={() => handleAddClick(p)} className="cc-btn-gold" style={{ padding: "8px 10px", fontSize: 12 }} title="Adicionar à sacola">
                       <ShoppingBag size={14} />
                     </button>
-                    <a href={`https://wa.me/${WHATSAPP_NUMBER}?text=${msg}`} target="_blank" rel="noopener noreferrer" className="cc-btn-gold" style={{ padding: "8px 12px", fontSize: 12 }}>
+                    <a href={`https://wa.me/${WHATSAPP_NUMBER}?text=${msg}`} onClick={() => trackWhatsappClick([p.id], "compartilhar")} target="_blank" rel="noopener noreferrer" className="cc-btn-gold" style={{ padding: "8px 12px", fontSize: 12 }}>
                       <MessageCircle size={14} /> Compartilhar
                     </a>
                   </div>
@@ -657,23 +624,12 @@ export default function PublicCatalogPage() {
                     ))}
                   </div>
                   <div style={{ borderTop: "1px solid #EFEBE0", paddingTop: 12, marginBottom: 16 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0" }}>
-                      <span style={{ fontFamily: "Manrope", fontSize: 12.5, color: "#7A897F" }}>Subtotal</span>
-                      <span style={{ fontFamily: "Manrope", fontSize: 12.5, color: "#7A897F" }}>{money(cartSubtotal)}</span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0" }}>
-                      <span style={{ fontFamily: "Manrope", fontSize: 12.5, color: "#8A6B2E", fontWeight: 700 }}>Desconto ({discountRate * 100}%)</span>
-                      <span style={{ fontFamily: "Manrope", fontSize: 12.5, color: "#8A6B2E", fontWeight: 700 }}>-{money(discountValue)}</span>
-                    </div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 6 }}>
                       <span style={{ fontFamily: "Manrope", fontSize: 13.5, fontWeight: 700, color: INK }}>Total</span>
                       <span style={{ fontFamily: "Cormorant Garamond", fontSize: 24, fontWeight: 700, color: GREEN }}>{money(cartTotal)}</span>
                     </div>
                   </div>
-                  <p style={{ fontFamily: "Manrope", fontSize: 11.5, fontWeight: 700, color: cartCount >= DISCOUNT_TIER_2_QTY ? GREEN : "#8A968F", margin: "-10px 0 16px", textAlign: "center" }}>
-                    {getCartIncentiveMessage(cartCount)}
-                  </p>
-                  <a href={`https://wa.me/${WHATSAPP_NUMBER}?text=${cartMessage}`} target="_blank" rel="noopener noreferrer" className="cc-btn-gold" style={{ width: "100%", justifyContent: "center" }}>
+                  <a href={`https://wa.me/${WHATSAPP_NUMBER}?text=${cartMessage}`} onClick={() => trackWhatsappClick([...new Set(cart.map((i) => i.id))], "sacola")} target="_blank" rel="noopener noreferrer" className="cc-btn-gold" style={{ width: "100%", justifyContent: "center" }}>
                     <MessageCircle size={16} /> Enviar pelo WhatsApp
                   </a>
                 </>

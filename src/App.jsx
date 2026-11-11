@@ -21,6 +21,7 @@ import { listCashflow, createCashflowEntry, updateCashflowEntry, deleteCashflowE
 import { listPurchases, createPurchase } from "./services/compras";
 import { listWishlistCounts } from "./services/wishlist";
 import { listVisits } from "./services/visitas";
+import { listWhatsappClicks } from "./services/cliquesWhatsapp";
 import { getSettings, updateSettings } from "./services/settings";
 import { listGoals, setGoalForMonth } from "./services/metas";
 import { listAccountsPayable, createAccountPayable, updateAccountPayable, deleteAccountPayable, markAccountAsPaid } from "./services/contasPagar";
@@ -464,7 +465,7 @@ function EmptyChartState({ message }) {
   );
 }
 
-function Dashboard({ products, orders, cashflow, visits, financialGoals }) {
+function Dashboard({ products, orders, cashflow, visits, whatsappClicks, financialGoals }) {
   const now = new Date();
   const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const isCurrentMonth = (dateStr) => !!dateStr && dateStr.slice(0, 7) === currentMonthKey;
@@ -474,6 +475,7 @@ function Dashboard({ products, orders, cashflow, visits, financialGoals }) {
   const visitsThisMonth = visits.filter((v) => isCurrentMonth(v.criado_em));
   const visitasCatalogoMes = visitsThisMonth.length;
   const visitantesUnicosMes = new Set(visitsThisMonth.map((v) => v.visitor_id)).size;
+  const cliquesWhatsappMes = whatsappClicks.filter((c) => isCurrentMonth(c.criado_em)).length;
 
   const lowStock = products.filter((p) => p.quantidade <= p.estoqueMinimo);
 
@@ -568,6 +570,7 @@ function Dashboard({ products, orders, cashflow, visits, financialGoals }) {
         <StatCard icon={AlertTriangle} label="Estoque baixo" value={String(lowStock.length)} accent="#B5533D" />
         <StatCard icon={Eye} label="Visitas ao catálogo (mês)" value={String(visitasCatalogoMes)} accent="#3E6E85" />
         <StatCard icon={Users} label="Visitantes únicos (mês)" value={String(visitantesUnicosMes)} accent={GOLD} />
+        <StatCard icon={MessageCircle} label="Cliques no WhatsApp (mês)" value={String(cliquesWhatsappMes)} accent={GREEN} />
       </div>
 
       <div className="cc-grid-charts">
@@ -2621,7 +2624,7 @@ function CashflowForm({ data, onSave, saving, onCancel }) {
 
 /* ---------------- Relatórios ---------------- */
 
-function RelatoriosView({ products, clients, orders, cashflow, wishlistCounts, visits, loading }) {
+function RelatoriosView({ products, clients, orders, cashflow, wishlistCounts, visits, whatsappClicks, loading }) {
   // Quantidade vendida por produto, somando os itens de pedidos que não foram cancelados
   const vendidoPorProduto = {};
   orders.filter((o) => o.status !== "Cancelado").forEach((o) => {
@@ -2666,6 +2669,18 @@ function RelatoriosView({ products, clients, orders, cashflow, wishlistCounts, v
     .sort((a, b) => b.qty - a.qty)
     .map((p) => ({ label: p.label, value: `♥ ${p.qty}` }));
 
+  // Cliques no WhatsApp por peça (botão "Compartilhar" + "Enviar pelo WhatsApp" da sacola).
+  // Mostra também quantos visitantes diferentes clicaram, pra um mesmo visitante
+  // clicando várias vezes não inflar a leitura.
+  const maisClicadasWhatsapp = products
+    .map((p) => {
+      const cliques = whatsappClicks.filter((c) => c.produto_id === p.id);
+      return { label: `${p.code ? p.code + " — " : ""}${p.name}`, qty: cliques.length, pessoas: new Set(cliques.map((c) => c.visitor_id)).size };
+    })
+    .filter((p) => p.qty > 0)
+    .sort((a, b) => b.qty - a.qty || b.pessoas - a.pessoas)
+    .map((p) => ({ label: p.label, value: `${p.qty} clique${p.qty === 1 ? "" : "s"} · ${p.pessoas} pessoa${p.pessoas === 1 ? "" : "s"}` }));
+
   // Visitas por dia nos últimos 30 dias — dias sem visita aparecem com 0, não somem.
   const last30Days = Array.from({ length: 30 }, (_, i) => {
     const d = new Date();
@@ -2687,6 +2702,7 @@ function RelatoriosView({ products, clients, orders, cashflow, wishlistCounts, v
     { title: "Lucro por produto", data: products.map((p) => ({ label: p.name, value: money(p.lucro) })) },
     { title: "Fluxo de caixa", data: resumoCaixa },
     { title: "Peças mais favoritadas", data: maisFavoritadas },
+    { title: "Peças mais clicadas no WhatsApp", data: maisClicadasWhatsapp },
   ];
   return (
     <div>
@@ -3069,6 +3085,7 @@ export default function App() {
   const [cashflow, setCashflow] = useState([]);
   const [wishlistCounts, setWishlistCounts] = useState({});
   const [visits, setVisits] = useState([]);
+  const [whatsappClicks, setWhatsappClicks] = useState([]);
   const [settings, setSettings] = useState(null);
   const [financialGoals, setFinancialGoals] = useState([]);
   const [accountsPayable, setAccountsPayable] = useState([]);
@@ -3111,11 +3128,12 @@ export default function App() {
       listPurchases(),
       listWishlistCounts(),
       listVisits(),
+      listWhatsappClicks(),
       getSettings(),
       listGoals(),
       listAccountsPayable(),
     ])
-      .then(([productRows, categoryRows, supplierRows, clientRows, orderRows, cashflowRows, purchaseRows, wishlistCountRows, visitRows, settingsRow, goalRows, accountRows]) => {
+      .then(([productRows, categoryRows, supplierRows, clientRows, orderRows, cashflowRows, purchaseRows, wishlistCountRows, visitRows, clickRows, settingsRow, goalRows, accountRows]) => {
         setProducts(productRows);
         setCategories(categoryRows);
         setSuppliers(supplierRows);
@@ -3125,6 +3143,7 @@ export default function App() {
         setPurchases(purchaseRows);
         setWishlistCounts(wishlistCountRows);
         setVisits(visitRows);
+        setWhatsappClicks(clickRows);
         setSettings(settingsRow);
         setFinancialGoals(goalRows);
         setAccountsPayable(accountRows);
@@ -3226,7 +3245,7 @@ export default function App() {
       <div style={{ flex: 1, minWidth: 0 }}>
         <Topbar title={VIEW_TITLES[active]} setMobileOpen={setMobileOpen} />
         <main style={{ padding: "22px 24px 60px" }}>
-          {active === "dashboard" && <Dashboard products={products} orders={orders} cashflow={cashflow} visits={visits} financialGoals={financialGoals} />}
+          {active === "dashboard" && <Dashboard products={products} orders={orders} cashflow={cashflow} visits={visits} whatsappClicks={whatsappClicks} financialGoals={financialGoals} />}
           {active === "produtos" && <ProdutosView products={products} setProducts={setProducts} suppliers={suppliers} categories={categories} wishlistCounts={wishlistCounts} loading={productsLoading} loadError={productsError} />}
           {active === "clientes" && <ClientesView clients={clients} setClients={setClients} loading={productsLoading} loadError={productsError} />}
           {active === "fornecedores" && <FornecedoresView suppliers={suppliers} setSuppliers={setSuppliers} loading={productsLoading} loadError={productsError} />}
@@ -3235,7 +3254,7 @@ export default function App() {
           {active === "pedidos" && <PedidosView orders={orders} setOrders={setOrders} clients={clients} products={products} onStatusChange={handleOrderStatusChange} loading={productsLoading} loadError={productsError} />}
           {active === "precificacao" && <PrecificacaoView products={products} setProducts={setProducts} settings={settings} />}
           {active === "caixa" && <CaixaView cashflow={cashflow} setCashflow={setCashflow} orders={orders} setOrders={setOrders} clients={clients} products={products} onStatusChange={handleOrderStatusChange} accountsPayable={accountsPayable} setAccountsPayable={setAccountsPayable} suppliers={suppliers} loading={productsLoading} loadError={productsError} />}
-          {active === "relatorios" && <RelatoriosView products={products} clients={clients} orders={orders} cashflow={cashflow} wishlistCounts={wishlistCounts} visits={visits} loading={productsLoading} />}
+          {active === "relatorios" && <RelatoriosView products={products} clients={clients} orders={orders} cashflow={cashflow} wishlistCounts={wishlistCounts} visits={visits} whatsappClicks={whatsappClicks} loading={productsLoading} />}
           {active === "catalogo" && <CatalogoView products={products} />}
           {active === "config" && <ConfiguracoesView settings={settings} setSettings={setSettings} financialGoals={financialGoals} setFinancialGoals={setFinancialGoals} />}
         </main>
